@@ -156,7 +156,7 @@ export function App() {
         <div className="max-w-[380px] w-full relative z-10">
           <div className="text-center mb-8">
             <div className="w-12 h-12 bg-[#1A1F2B] border border-white/5 rounded-xl flex items-center justify-center mx-auto mb-6 shadow-xl"><Activity className="text-white w-6 h-6" /></div>
-            <h2 className="text-3xl font-bold text-white mb-2 tracking-tight">Welcome back</h2>
+            <h2 className="text-3xl font-bold text-white mb-2 tracking-tight">RH Analytics</h2>
             <p className="text-slate-400 text-sm">Dashboard de <span className="text-blue-400 cursor-pointer">RH Analytics</span>.</p>
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
