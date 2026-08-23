@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, UserPlus, UserMinus, Activity, Stethoscope, AlertOctagon, Clock, Star, UsersRound, Download, TrendingDown, Lock, PieChart as PieChartIcon, DollarSign, Calendar, Gift, BellRing, AlertTriangle, Loader2, X, Briefcase, HeartPulse, Wallet, CalendarRange, Flame } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, UserMinus, Activity, Stethoscope, AlertOctagon, Clock, Star, UsersRound, Download, TrendingDown, Lock, PieChart as PieChartIcon, DollarSign, Calendar, Gift, BellRing, AlertTriangle, Loader2, X, Briefcase, HeartPulse, Wallet, CalendarRange, Flame, Package, LockKeyhole, Unlock, Wrench } from 'lucide-react';
 // IMPORT ATUALIZADO PARA A VERSÃO PRO QUE SUPORTA OKLCH
 import html2canvas from 'html2canvas-pro';
 import { jsPDF } from 'jspdf';
@@ -33,7 +33,8 @@ export function App() {
     alertasAniversarios: [], alertasContratos: [],
     graficoAdvertencias: [], rankingFaltas: [], rankingAtestados: [],
     rankingMedicos: [], rankingCids: [], graficoRadar: [], perfis360: {} as Record<string, any>,
-    alertasFerias: [], totalHorasExtras: 0, graficoHorasExtras: []
+    alertasFerias: [], totalHorasExtras: 0, graficoHorasExtras: [],
+    armarios: [] // DADOS REAIS DO NOTION
   });
 
   const [menuAtivo, setMenuAtivo] = useState("visao_geral");
@@ -78,7 +79,7 @@ export function App() {
       
       const pdf = new jsPDF('l', 'mm', 'a4'); 
       const pdfWidth = pdf.internal.pageSize.getWidth();
-      const paginas = ['print-visao', 'print-comportamento', 'print-financeiro', 'print-desempenho'];
+      const paginas = ['print-visao', 'print-comportamento', 'print-financeiro', 'print-armarios', 'print-desempenho'];
       let primeiraPagina = true;
 
       for (const pageId of paginas) {
@@ -172,6 +173,15 @@ export function App() {
 
   const perfilInfo = modal360 && kpis.perfis360 ? kpis.perfis360[modal360] : null;
 
+  // ========================================================
+  // PROCESSA OS DADOS REAIS DO NOTION
+  // ========================================================
+  const armariosReais = kpis.armarios || [];
+  const totalArmarios = armariosReais.length;
+  const ocupados = armariosReais.filter((a:any) => a.status === "Ocupado").length;
+  const livres = armariosReais.filter((a:any) => a.status === "Livre").length;
+  const manutencao = armariosReais.filter((a:any) => a.status === "Manutenção").length;
+
   return (
     <div className={`flex h-screen font-sans transition-colors duration-300 ${modoImpressao ? 'bg-slate-100 text-slate-900' : 'bg-[#0E1218] text-white'}`}>
       
@@ -235,7 +245,7 @@ export function App() {
 
       {/* MENU LATERAL */}
       {!modoImpressao && (
-        <aside className="w-64 bg-[#0B0F19] border-r border-white/5 flex flex-col hide-on-print">
+        <aside className="w-64 bg-[#0B0F19] border-r border-white/5 flex flex-col hide-on-print z-10">
           <div className="p-6 flex items-center gap-3 border-b border-white/5">
             <Activity className="text-blue-500 w-8 h-8" />
             <span className="text-white font-bold text-xl tracking-wide">RH Analytics</span>
@@ -244,6 +254,7 @@ export function App() {
             <button onClick={() => setMenuAtivo("visao_geral")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all text-sm ${menuAtivo === 'visao_geral' ? 'bg-[#1A1F2B] text-white border border-white/5' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}><LayoutDashboard className="w-4 h-4" /> Visão Geral</button>
             <button onClick={() => setMenuAtivo("comportamento")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all text-sm ${menuAtivo === 'comportamento' ? 'bg-[#1A1F2B] text-white border border-white/5' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}><UsersRound className="w-4 h-4" /> Comportamento e Saúde</button>
             <button onClick={() => setMenuAtivo("financeiro")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all text-sm ${menuAtivo === 'financeiro' ? 'bg-[#1A1F2B] text-white border border-white/5' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}><Wallet className="w-4 h-4" /> Financeiro e Passivos</button>
+            <button onClick={() => setMenuAtivo("armarios")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all text-sm ${menuAtivo === 'armarios' ? 'bg-[#1A1F2B] text-white border border-white/5' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}><Package className="w-4 h-4" /> Gestão de Armários</button>
             <button onClick={() => setMenuAtivo("desempenho")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all text-sm ${menuAtivo === 'desempenho' ? 'bg-[#1A1F2B] text-white border border-white/5' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}><Star className="w-4 h-4" /> Desempenho</button>
           </nav>
           <div className="p-4 border-t border-white/5">
@@ -260,6 +271,7 @@ export function App() {
               {menuAtivo === "visao_geral" && `Visão Geral (${NOME_MESES[mesSelecionado-1]} ${anoSelecionado})`}
               {menuAtivo === "comportamento" && `Comportamento e Saúde (${NOME_MESES[mesSelecionado-1]} ${anoSelecionado})`}
               {menuAtivo === "financeiro" && `Indicadores Financeiros (${NOME_MESES[mesSelecionado-1]} ${anoSelecionado})`}
+              {menuAtivo === "armarios" && `Controle Físico de Armários`}
               {menuAtivo === "desempenho" && `Performance da Equipe (${anoSelecionado})`}
             </h1>
             
@@ -297,9 +309,6 @@ export function App() {
             </div>
           )}
 
-          {/* ========================================================= */}
-          {/* PÁGINA 1: VISÃO GERAL */}
-          {/* ========================================================= */}
           {(menuAtivo === "visao_geral" || modoImpressao) && (
             <div id="print-visao" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
               
@@ -391,7 +400,6 @@ export function App() {
                   <div className={`${cardBg} p-6 rounded-xl flex flex-col h-full`}>
                     <div className="flex justify-between items-center mb-6">
                       <h3 className={`text-sm font-bold ${titleColor} flex items-center gap-2 uppercase tracking-wider`}><Gift className="w-4 h-4 text-amber-500" /> Aniversariantes</h3>
-                      {/* FILTROS DEVOLVIDOS! */}
                       <div className="flex gap-1 bg-black/20 p-1 rounded-lg border border-white/5">
                         {['Tds', 'S1', 'S2', 'S3', 'S4'].map((label, i) => (
                           <button key={i} onClick={() => setFiltroSemana(i)} className={`text-[10px] font-bold px-2 py-1 rounded transition-colors ${filtroSemana === i ? 'bg-amber-500/20 text-amber-400' : 'text-slate-500 hover:text-slate-300'}`}>{label}</button>
@@ -413,7 +421,6 @@ export function App() {
                   <div className={`${cardBg} p-6 rounded-xl flex flex-col h-full`}>
                     <div className="flex justify-between items-center mb-6 relative z-10">
                       <h3 className={`text-sm font-bold ${titleColor} flex items-center gap-2 uppercase tracking-wider`}><BellRing className="w-4 h-4 text-rose-500" /> Experiência</h3>
-                      {/* FILTROS DEVOLVIDOS! */}
                       <div className="flex gap-1 bg-black/20 p-1 rounded-lg border border-white/5">
                         {['45 Dias', '90 Dias'].map((label) => (
                           <button key={label} onClick={() => setFiltroContrato(label)} className={`text-[10px] font-bold px-2 py-1 rounded transition-colors ${filtroContrato === label ? 'bg-rose-500/20 text-rose-400' : 'text-slate-500 hover:text-slate-300'}`}>{label}</button>
@@ -443,9 +450,6 @@ export function App() {
             </div>
           )}
 
-          {/* ========================================================= */}
-          {/* PÁGINA 2: COMPORTAMENTO DISCIPLINA E SAÚDE */}
-          {/* ========================================================= */}
           {(menuAtivo === "comportamento" || modoImpressao) && (
             <div id="print-comportamento" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
               
@@ -535,9 +539,6 @@ export function App() {
             </div>
           )}
 
-          {/* ========================================================= */}
-          {/* PÁGINA 3: FINANCEIRO & PASSIVOS */}
-          {/* ========================================================= */}
           {(menuAtivo === "financeiro" || modoImpressao) && (
             <div id="print-financeiro" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
               
@@ -605,14 +606,94 @@ export function App() {
           )}
 
           {/* ========================================================= */}
-          {/* PÁGINA 4: DESEMPENHO E AVALIAÇÕES */}
+          {/* NOVA PÁGINA 4: MAPA DE ARMÁRIOS VIRTUAIS COM DADOS REAIS DO NOTION */}
+          {/* ========================================================= */}
+          {(menuAtivo === "armarios" || modoImpressao) && (
+            <div id="print-armarios" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
+              
+              <div className={`mb-6 border-b pb-4 ${modoImpressao ? 'border-slate-200' : 'border-white/5'}`}>
+                <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>{modoImpressao ? '4.' : ''} Gestão de Armários Físicos</h2>
+                <p className={`${textMuted} text-sm`}>Mapeamento de ocupação e manutenção em tempo real conectado ao Notion.</p>
+              </div>
+
+              {/* KPIs DE ARMÁRIOS */}
+              <section className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4 border-l-4 border-l-blue-500`}><div className="p-3 bg-blue-500/10 text-blue-500 rounded-lg"><Package className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Total de Armários</p><h3 className={`text-2xl font-bold ${textColor}`}>{totalArmarios}</h3></div></div>
+                <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4 border-l-4 border-l-emerald-500`}><div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-lg"><Unlock className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Livres</p><h3 className={`text-2xl font-bold ${textColor}`}>{livres}</h3></div></div>
+                <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4 border-l-4 border-l-indigo-500`}><div className="p-3 bg-indigo-500/10 text-indigo-500 rounded-lg"><LockKeyhole className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Ocupados</p><h3 className={`text-2xl font-bold ${textColor}`}>{ocupados}</h3></div></div>
+                <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4 border-l-4 border-l-orange-500`}><div className="p-3 bg-orange-500/10 text-orange-500 rounded-lg"><Wrench className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Manutenção</p><h3 className={`text-2xl font-bold ${textColor}`}>{manutencao}</h3></div></div>
+              </section>
+
+              {/* A "PAREDE" DE ARMÁRIOS */}
+              <div className={`${cardBg} p-6 rounded-xl`}>
+                <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Package className="w-4 h-4 text-slate-500" /> Mapa de Ocupação</h3>
+                
+                {/* GRADE RESPONSIVA COM DADOS REAIS */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                  
+                  {armariosReais.length > 0 ? (
+                    armariosReais.map((armario:any, index:number) => {
+                      let boxStyle = "";
+                      let icon = null;
+
+                      if (armario.status === "Livre") {
+                        boxStyle = modoImpressao ? "bg-white border-2 border-emerald-300 shadow-sm" : "bg-[#1A1F2B] border-2 border-emerald-500/30 hover:border-emerald-500 transition-colors";
+                        icon = <Unlock className="w-4 h-4 text-emerald-500 mb-1" />;
+                      } else if (armario.status === "Ocupado") {
+                        boxStyle = modoImpressao ? "bg-indigo-50 border-2 border-indigo-300" : "bg-indigo-500/10 border-2 border-indigo-500/50 hover:border-indigo-400 transition-colors";
+                        icon = <LockKeyhole className="w-4 h-4 text-indigo-500 mb-1" />;
+                      } else if (armario.status === "Manutenção") {
+                        boxStyle = modoImpressao ? "bg-orange-50 border-2 border-orange-300 flex-col items-center justify-center text-center opacity-70" : "bg-[#1A1F2B] border-2 border-dashed border-orange-500/50 flex-col items-center justify-center text-center opacity-60";
+                        icon = <Wrench className="w-4 h-4 text-orange-500 mb-1" />;
+                      }
+
+                      return (
+                        <div key={index} className={`relative rounded-xl p-3 flex flex-col justify-between aspect-square cursor-pointer ${boxStyle}`}>
+                          <div className="flex justify-between items-start">
+                            <span className={`text-lg font-black ${modoImpressao ? 'text-slate-800' : 'text-white'}`}>#{armario.num}</span>
+                            {icon}
+                          </div>
+                          
+                          <div className="mt-2">
+                            <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded flex w-fit mb-1 
+                              ${armario.status === 'Livre' ? 'bg-emerald-500/20 text-emerald-500' : 
+                                armario.status === 'Ocupado' ? 'bg-indigo-500/20 text-indigo-400' : 
+                                'bg-orange-500/20 text-orange-500'}`}>
+                              {armario.status}
+                            </span>
+                            
+                            {armario.status === "Ocupado" && armario.dono && (
+                              <span className={`text-xs font-medium line-clamp-2 leading-tight ${modoImpressao ? 'text-slate-700' : 'text-slate-300'}`}>
+                                {armario.dono}
+                              </span>
+                            )}
+                            {armario.status === "Livre" && (
+                              <span className="text-xs text-emerald-500/70 italic">Disponível</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="col-span-full py-8 text-center border border-dashed border-white/10 rounded-lg">
+                      <p className="text-slate-400 text-sm">Nenhum armário encontrado no banco de dados.</p>
+                    </div>
+                  )}
+                  
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* PÁGINA 5: DESEMPENHO E AVALIAÇÕES */}
           {/* ========================================================= */}
           {(menuAtivo === "desempenho" || modoImpressao) && (
             <div id="print-desempenho" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
               
               {modoImpressao && (
                 <div className="mb-6 border-b pb-4 border-slate-200">
-                  <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>4. Performance e Produtividade</h2>
+                  <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>{modoImpressao ? '5.' : '4.'} Performance e Produtividade</h2>
                   <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {anoSelecionado}</p>
                 </div>
               )}
