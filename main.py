@@ -142,7 +142,7 @@ def normalizar_nome(nome):
     return unicodedata.normalize('NFKD', n).encode('ASCII', 'ignore').decode('utf-8')
 
 # ==========================================
-# 3. ROTAS DA API
+# 3. ROTAS DA API E FOLHA DE PAGAMENTO
 # ==========================================
 def sincronizar_tudo():
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
@@ -175,9 +175,11 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
         
         # Lê o Excel que a pessoa arrastou na tela
         try:
-            df = pd.read_excel(io.BytesIO(conteudo), header=None)
+            # Força o motor xlrd para ler planilhas antigas do SAP
+            df = pd.read_excel(io.BytesIO(conteudo), header=None, engine='xlrd')
         except Exception as e:
-            return {"sucesso": False, "erro": "Formato de arquivo inválido. Envie o sap_009.xls gerado pelo sistema."}
+            # Agora ele vai cuspir o erro verdadeiro na sua tela!
+            return {"sucesso": False, "erro": f"Erro Técnico do Python: {str(e)}"}
 
         # 1. Puxa os salários e nomes atualizados do Banco Local
         colabs = ler_do_banco("colaboradores") or []
@@ -229,14 +231,23 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
                 
                 if time_val:
                     try:
-                        # Matemática do RH (Horas -> Decimais -> Reais)
-                        h, m = time_val.split(":")
-                        horas_decimais = int(h) + (int(m) / 60.0)
-                        
                         # Cruza o nome do SAP com o banco do Notion
                         info_func = dict_salarios.get(nome_atual_sap)
                         
                         if info_func:
+                            setor_colaborador = str(info_func.get("setor", "")).upper()
+                            
+                            # ==========================================
+                            # 🛑 REGRA DE NEGÓCIO: IGNORAR SETOR UCHOA
+                            # ==========================================
+                            if "UCHOA" in setor_colaborador or "UCHÔA" in setor_colaborador:
+                                nome_atual_sap = None # Zera o nome para as próximas linhas
+                                continue # Pula o processamento dessa pessoa e vai pro próximo
+
+                            # Matemática do RH (Horas -> Decimais -> Reais)
+                            h, m = time_val.split(":")
+                            horas_decimais = int(h) + (int(m) / 60.0)
+                            
                             salario = info_func["salario"]
                             if salario <= 0: salario = 2270.22 # Fallback padrão caso esteja vazio
                             
@@ -251,7 +262,7 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
                                 "valor_desconto": round(desconto_rs, 2)
                             })
                         else:
-                            # Caso a pessoa não exista no Notion (Terceirizado ou Recém Contratado)
+                            # Caso a pessoa não exista no Notion
                             resultados.append({
                                 "nome": emp_parts[1].strip() + " (Não achou no Notion)",
                                 "setor": "-",
@@ -262,7 +273,6 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
                     except: pass
                     nome_atual_sap = None # Zera para o próximo funcionário
 
-        # Retorna a lista organizada!
         return {"sucesso": True, "processados": len(resultados), "dados": resultados}
     except Exception as e:
         return {"sucesso": False, "erro": str(e)}

@@ -1,0 +1,14 @@
+# Pastas pesadas do React e do Python
+node_modules/
+**/node_modules/
+venv/
+__pycache__/
+
+# Arquivos locais e de banco de dados
+banco_rh.db
+sap_009.xls
+sap_009_2.xls
+*.pdf
+
+# Variáveis de ambiente
+.env
