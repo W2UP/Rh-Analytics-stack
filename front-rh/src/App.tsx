@@ -1,9 +1,7 @@
-import { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, UserPlus, UserMinus, Activity, Stethoscope, AlertOctagon, Clock, Star, UsersRound, Download, TrendingDown, Lock, PieChart as PieChartIcon, DollarSign, Calendar, Gift, BellRing, AlertTriangle, Loader2, X, Briefcase, HeartPulse, Wallet, CalendarRange, Flame, Package, LockKeyhole, Unlock, Wrench } from 'lucide-react';
-// IMPORT ATUALIZADO PARA A VERSÃO PRO QUE SUPORTA OKLCH
+import { useState, useEffect, useRef } from 'react';
+import { LayoutDashboard, Users, UserPlus, UserMinus, Activity, Stethoscope, AlertOctagon, Clock, Star, UsersRound, Download, TrendingDown, Lock, PieChart as PieChartIcon, DollarSign, Calendar, Gift, BellRing, AlertTriangle, Loader2, X, Briefcase, HeartPulse, Wallet, CalendarRange, Flame, Package, LockKeyhole, Unlock, Wrench, UploadCloud, RefreshCw, FileText, CheckCircle2 } from 'lucide-react';
 import html2canvas from 'html2canvas-pro';
 import { jsPDF } from 'jspdf';
-// ADICIONADO O LABELLIST PARA OS NÚMEROS NOS GRÁFICOS
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, LabelList } from 'recharts';
 
 const CORES_DONUT = ['#818CF8', '#F43F5E', '#34D399', '#FBBF24', '#A78BFA', '#F472B6'];
@@ -17,30 +15,36 @@ export function App() {
   const [fazendoLogin, setFazendoLogin] = useState(false);
 
   const [carregandoDados, setCarregandoDados] = useState(true);
+  const [sincronizando, setSincronizando] = useState(false);
+  
   const [mesSelecionado, setMesSelecionado] = useState(new Date().getMonth() + 1); 
   const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear()); 
+  const [setorSelecionado, setSetorSelecionado] = useState("Todos");
 
   const [filtroContrato, setFiltroContrato] = useState("45 Dias"); 
   const [filtroSemana, setFiltroSemana] = useState(0); 
   const [modoImpressao, setModoImpressao] = useState(false);
   const [modal360, setModal360] = useState<string | null>(null);
 
+  // --- ESTADOS DO CARTÃO DE PONTO ---
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [processandoPonto, setProcessandoPonto] = useState(false);
+  const [resultadoPonto, setResultadoPonto] = useState<any[]>([]);
+  const [erroPonto, setErroPonto] = useState("");
+
   const [kpis, setKpis] = useState({
     funcionarios: "-", admissoes: "-", desligamentos: "-", turnover: "-", 
     atestados: "-", advertencias: "-", faltas: "-", atrasos: "-", avaliacoes: "-",
-    custo_absenteismo: 0,
-    graficoSetores: [], graficoTurnover: [], graficoMotivos: [], graficoHeadcount: [],
-    alertasAniversarios: [], alertasContratos: [],
-    graficoAdvertencias: [], rankingFaltas: [], rankingAtestados: [],
+    custo_absenteismo: 0, graficoSetores: [], graficoTurnover: [], graficoMotivos: [], graficoHeadcount: [],
+    alertasAniversarios: [], alertasContratos: [], graficoAdvertencias: [], rankingFaltas: [], rankingAtestados: [],
     rankingMedicos: [], rankingCids: [], graficoRadar: [], perfis360: {} as Record<string, any>,
-    alertasFerias: [], totalHorasExtras: 0, graficoHorasExtras: [],
-    armarios: [] // DADOS REAIS DO NOTION
+    alertasFerias: [], totalHorasExtras: 0, graficoHorasExtras: [], armarios: [], setoresDisponiveis: [] 
   });
 
   const [menuAtivo, setMenuAtivo] = useState("visao_geral");
   const [gerandoPdf, setGerandoPdf] = useState(false);
 
-  useEffect(() => { if (autenticado) { carregarDadosDashboard(); } }, [autenticado, mesSelecionado, anoSelecionado]);
+  useEffect(() => { if (autenticado) { carregarDadosDashboard(); } }, [autenticado, mesSelecionado, anoSelecionado, setorSelecionado]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault(); setFazendoLogin(true); setErroLogin("");
@@ -57,18 +61,58 @@ export function App() {
   
   const carregarDadosDashboard = () => {
     setCarregandoDados(true); 
-    fetch(`http://127.0.0.1:8000/api/dashboard/kpis?mes=${mesSelecionado}&ano=${anoSelecionado}`)
+    fetch(`http://127.0.0.1:8000/api/dashboard/kpis?mes=${mesSelecionado}&ano=${anoSelecionado}&setor=${setorSelecionado}`)
       .then((resposta) => resposta.json())
-      .then((dados_reais) => {
-        setKpis(dados_reais);
-        setCarregandoDados(false); 
-      })
+      .then((dados_reais) => { setKpis(dados_reais); setCarregandoDados(false); })
       .catch((erro) => { console.error("Erro ao buscar:", erro); setCarregandoDados(false); });
+  };
+
+  const forcarSincronizacao = () => {
+    setSincronizando(true);
+    fetch(`http://127.0.0.1:8000/api/sincronizar`)
+      .then((resposta) => resposta.json())
+      .then(() => {
+        setTimeout(() => {
+          setSincronizando(false);
+          carregarDadosDashboard();
+        }, 8000);
+      }).catch(() => setSincronizando(false));
   };
   
   const formatarMoeda = (valor: number | string) => {
     if (valor === "-" || isNaN(Number(valor))) return "R$ 0,00";
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor));
+  };
+
+  // --- NOVA FUNÇÃO DE UPLOAD DO PONTO ---
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setProcessandoPonto(true);
+    setErroPonto("");
+    setResultadoPonto([]);
+
+    const formData = new FormData();
+    formData.append("arquivo", file);
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/processar_ponto", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      
+      if (data.sucesso) {
+        setResultadoPonto(data.dados);
+      } else {
+        setErroPonto(data.erro || "Falha ao processar o arquivo SAP.");
+      }
+    } catch (err) {
+      setErroPonto("Erro de conexão. O servidor Python está rodando?");
+    } finally {
+      setProcessandoPonto(false);
+    }
   };
   
   const exportarPDF = async () => {
@@ -78,30 +122,42 @@ export function App() {
       await new Promise((resolve) => setTimeout(resolve, 2000)); 
       
       const pdf = new jsPDF('l', 'mm', 'a4'); 
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const paginas = ['print-visao', 'print-comportamento', 'print-financeiro', 'print-armarios', 'print-desempenho'];
+      const pdfWidth = pdf.internal.pageSize.getWidth(); 
+      const pdfPageHeight = pdf.internal.pageSize.getHeight(); 
+      
+      const paginas = ['print-visao', 'print-comportamento', 'print-financeiro', 'print-desempenho'];
       let primeiraPagina = true;
 
       for (const pageId of paginas) {
         const element = document.getElementById(pageId);
         if (element) {
-          const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#F8FAFC" });
+          const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#F8FAFC", windowWidth: 1200 });
           if (canvas.width === 0) continue; 
           
           const imgData = canvas.toDataURL('image/png');
-          const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+          const margem = 10;
+          const maxImgWidth = pdfWidth - (margem * 2);
+          const maxImgHeight = pdfPageHeight - (margem * 2);
+          
+          let imgWidth = maxImgWidth;
+          let imgHeight = (canvas.height * imgWidth) / canvas.width;
+          
+          if (imgHeight > maxImgHeight) {
+            imgHeight = maxImgHeight;
+            imgWidth = (canvas.width * imgHeight) / canvas.height;
+          }
+          
+          const marginX = (pdfWidth - imgWidth) / 2;
+          const marginY = (pdfPageHeight - imgHeight) / 2;
           
           if (!primeiraPagina) { pdf.addPage(); }
-          pdf.addImage(imgData, 'PNG', 0, 5, pdfWidth, pdfHeight);
+          pdf.addImage(imgData, 'PNG', marginX, marginY, imgWidth, imgHeight);
           primeiraPagina = false;
         }
       }
-      pdf.save(`Relatorio_RH_${NOME_MESES[mesSelecionado-1]}_${anoSelecionado}.pdf`);
-    } catch (erro: any) { 
-      alert(`Erro ao gerar PDF: ${erro.message}`); 
-    } finally { 
-      setModoImpressao(false); setGerandoPdf(false); 
-    }
+      pdf.save(`Relatorio_RH_${setorSelecionado !== 'Todos' ? setorSelecionado : 'Geral'}_${NOME_MESES[mesSelecionado-1]}_${anoSelecionado}.pdf`);
+    } catch (erro: any) { alert(`Erro ao gerar PDF: ${erro.message}`); } 
+    finally { setModoImpressao(false); setGerandoPdf(false); }
   };
   
   const dataHoje = new Date();
@@ -172,10 +228,6 @@ export function App() {
   }
 
   const perfilInfo = modal360 && kpis.perfis360 ? kpis.perfis360[modal360] : null;
-
-  // ========================================================
-  // PROCESSA OS DADOS REAIS DO NOTION
-  // ========================================================
   const armariosReais = kpis.armarios || [];
   const totalArmarios = armariosReais.length;
   const ocupados = armariosReais.filter((a:any) => a.status === "Ocupado").length;
@@ -256,6 +308,11 @@ export function App() {
             <button onClick={() => setMenuAtivo("financeiro")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all text-sm ${menuAtivo === 'financeiro' ? 'bg-[#1A1F2B] text-white border border-white/5' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}><Wallet className="w-4 h-4" /> Financeiro e Passivos</button>
             <button onClick={() => setMenuAtivo("armarios")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all text-sm ${menuAtivo === 'armarios' ? 'bg-[#1A1F2B] text-white border border-white/5' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}><Package className="w-4 h-4" /> Gestão de Armários</button>
             <button onClick={() => setMenuAtivo("desempenho")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all text-sm ${menuAtivo === 'desempenho' ? 'bg-[#1A1F2B] text-white border border-white/5' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}><Star className="w-4 h-4" /> Desempenho</button>
+            
+            <div className="pt-4 mt-4 border-t border-white/5">
+              <span className="px-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 block">Novos Módulos</span>
+              <button onClick={() => setMenuAtivo("folha")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all text-sm ${menuAtivo === 'folha' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}><UploadCloud className="w-4 h-4" /> Automação de Ponto</button>
+            </div>
           </nav>
           <div className="p-4 border-t border-white/5">
             <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-4 py-2 hover:bg-red-500/10 text-slate-400 hover:text-red-400 rounded-lg transition-colors text-sm font-medium"><Lock className="w-4 h-4" /> Sign out</button>
@@ -268,15 +325,30 @@ export function App() {
         {!modoImpressao && (
           <header className="flex justify-between items-center mb-8">
             <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-              {menuAtivo === "visao_geral" && `Visão Geral (${NOME_MESES[mesSelecionado-1]} ${anoSelecionado})`}
-              {menuAtivo === "comportamento" && `Comportamento e Saúde (${NOME_MESES[mesSelecionado-1]} ${anoSelecionado})`}
-              {menuAtivo === "financeiro" && `Indicadores Financeiros (${NOME_MESES[mesSelecionado-1]} ${anoSelecionado})`}
+              {menuAtivo === "visao_geral" && `Visão Geral`}
+              {menuAtivo === "comportamento" && `Comportamento e Saúde`}
+              {menuAtivo === "financeiro" && `Indicadores Financeiros`}
               {menuAtivo === "armarios" && `Controle Físico de Armários`}
-              {menuAtivo === "desempenho" && `Performance da Equipe (${anoSelecionado})`}
+              {menuAtivo === "desempenho" && `Performance da Equipe`}
+              {menuAtivo === "folha" && `Processamento de Cartão de Ponto`}
             </h1>
             
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 bg-[#1A1F2B] border border-white/5 rounded-lg p-1">
+              <button onClick={forcarSincronizacao} disabled={sincronizando} className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors border border-white/5 shadow-sm ${sincronizando ? 'bg-indigo-500/20 text-indigo-400 cursor-wait' : 'bg-[#1A1F2B] text-slate-300 hover:text-white hover:bg-[#232936]'}`}>
+                <RefreshCw className={`w-4 h-4 ${sincronizando ? 'animate-spin' : ''}`} /> {sincronizando ? 'Sincronizando Notion...' : 'Atualizar Banco'}
+              </button>
+
+              <div className="flex items-center gap-2 bg-[#1A1F2B] border border-white/5 rounded-lg p-1 mr-2 shadow-sm">
+                <Briefcase className="w-4 h-4 text-slate-400 ml-2" />
+                <select value={setorSelecionado} onChange={(e) => setSetorSelecionado(e.target.value)} className="bg-transparent text-slate-200 text-sm py-1.5 pl-2 pr-6 outline-none cursor-pointer hover:text-white appearance-none" style={{backgroundImage: 'none'}}>
+                  <option value="Todos" className="bg-[#1A1F2B] text-white">Todos os Setores</option>
+                  {kpis.setoresDisponiveis?.map((setor: string, index: number) => (
+                    <option key={index} value={setor} className="bg-[#1A1F2B] text-white">{setor}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 bg-[#1A1F2B] border border-white/5 rounded-lg p-1 shadow-sm">
                 <Calendar className="w-4 h-4 text-slate-400 ml-2" />
                 <select value={mesSelecionado} onChange={(e) => setMesSelecionado(Number(e.target.value))} className="bg-transparent text-slate-200 text-sm py-1.5 pl-2 pr-6 outline-none cursor-pointer hover:text-white appearance-none" style={{backgroundImage: 'none'}}>
                   {NOME_MESES.map((nome, index) => (<option key={index} value={index + 1} className="bg-[#1A1F2B] text-white">{nome}</option>))}
@@ -288,7 +360,7 @@ export function App() {
                   <option value={2026} className="bg-[#1A1F2B] text-white">2026</option>
                 </select>
               </div>
-              <button onClick={exportarPDF} disabled={gerandoPdf} className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm cursor-pointer border border-white/5 ${gerandoPdf ? 'bg-slate-800 text-slate-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white border-none'}`}>
+              <button onClick={exportarPDF} disabled={gerandoPdf || menuAtivo === 'folha' || menuAtivo === 'armarios'} className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm border border-white/5 ${gerandoPdf || menuAtivo === 'folha' || menuAtivo === 'armarios' ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white border-none cursor-pointer'}`}>
                 <Download className="w-4 h-4" /> {gerandoPdf ? "Gerando PDF..." : "Gerar Relatório A4"}
               </button>
             </div>
@@ -298,12 +370,12 @@ export function App() {
         <div id="area-relatorio" className={`relative ${modoImpressao ? "w-[1200px] mx-auto p-4 space-y-8 bg-slate-50" : "p-2 rounded-lg"}`}>
           
           {carregandoDados && !modoImpressao && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#0E1218]/60 backdrop-blur-sm rounded-lg">
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#0E1218]/80 backdrop-blur-sm rounded-lg">
               <div className="flex flex-col items-center gap-4 bg-[#1A1F2B] p-8 rounded-xl border border-white/10 shadow-2xl">
                 <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />
                 <div className="text-center">
-                  <p className="text-white font-bold tracking-wide">Sincronizando Dados</p>
-                  <p className="text-slate-400 text-xs mt-1">Conectando ao banco do Notion...</p>
+                  <p className="text-white font-bold tracking-wide">Carregando Banco de Dados</p>
+                  <p className="text-slate-400 text-xs mt-1">Conectando ao Cache Local (SQLite)...</p>
                 </div>
               </div>
             </div>
@@ -313,7 +385,7 @@ export function App() {
             <div id="print-visao" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
               
               <div className={`mb-6 border-b pb-4 ${modoImpressao ? 'border-slate-200' : 'border-white/5'}`}>
-                <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>1. Sumário Executivo</h2>
+                <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>1. Sumário Executivo {setorSelecionado !== "Todos" && <span className="text-blue-500">- {setorSelecionado}</span>}</h2>
                 <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
               </div>
 
@@ -327,9 +399,9 @@ export function App() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4 mb-8">
                 <div className={`${cardBg} p-6 rounded-xl`}>
                   <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><TrendingDown className="w-4 h-4 text-purple-500" /> Evolução do Turnover</h3>
-                  <div className="h-64">
+                  <div className={modoImpressao ? "h-[300px]" : "h-64"}>
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={kpis.graficoTurnover} margin={{ top: 20, right: 30, left: -20, bottom: 5 }}>
+                      <LineChart data={kpis.graficoTurnover} margin={{ top: 25, right: 30, left: -20, bottom: 15 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGrid} />
                         <XAxis dataKey="mes" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
                         <YAxis axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} tickFormatter={(value) => `${value}%`} />
@@ -343,12 +415,12 @@ export function App() {
                 </div>
                 <div className={`${cardBg} p-6 rounded-xl`}>
                   <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><UsersRound className="w-4 h-4 text-emerald-500" /> Headcount por Setor</h3>
-                  <div className="h-64">
+                  <div className={modoImpressao ? "h-[300px]" : "h-64"}>
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={kpis.graficoHeadcount} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 5 }}>
+                      <BarChart data={kpis.graficoHeadcount} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
                         <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
-                        <YAxis type="category" dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={80} />
+                        <YAxis type="category" dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={100} />
                         <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
                         <Bar isAnimationActive={!modoImpressao} dataKey="quantidade" name="Colaboradores" fill="#34D399" radius={[0, 4, 4, 0]} barSize={20}>
                           <LabelList dataKey="quantidade" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
@@ -359,9 +431,9 @@ export function App() {
                 </div>
                 <div className={`${cardBg} p-6 rounded-xl`}>
                   <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><PieChartIcon className="w-4 h-4 text-blue-500" /> Motivos de Desligamento</h3>
-                  <div className="h-64 flex justify-center">
+                  <div className={modoImpressao ? "h-[300px]" : "h-64 flex justify-center"}>
                     <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
+                      <PieChart margin={{ bottom: 15 }}>
                         <Pie isAnimationActive={!modoImpressao} data={kpis.graficoMotivos} innerRadius={50} outerRadius={85} paddingAngle={5} dataKey="value" stroke="none" label={({name, value}) => `${name.substring(0,10)}... (${value})`} labelLine={true}>
                           {kpis.graficoMotivos.map((entry, index) => (<Cell key={`cell-${index}`} fill={CORES_DONUT[index % CORES_DONUT.length]} />))}
                         </Pie>
@@ -373,9 +445,9 @@ export function App() {
                 </div>
                 <div className={`${cardBg} p-6 rounded-xl`}>
                   <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Activity className="w-4 h-4 text-rose-500" /> Absenteísmo por Setor</h3>
-                  <div className="h-64">
+                  <div className={modoImpressao ? "h-[300px]" : "h-64"}>
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={kpis.graficoSetores} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
+                      <BarChart data={kpis.graficoSetores} margin={{ top: 25, right: 20, left: -20, bottom: 15 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGrid} />
                         <XAxis dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
                         <YAxis axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
@@ -406,7 +478,7 @@ export function App() {
                         ))}
                       </div>
                     </div>
-                    <div className="space-y-3 flex-1 overflow-y-auto max-h-64 pr-2 custom-scrollbar">
+                    <div className={`space-y-3 flex-1 pr-2 ${modoImpressao ? 'overflow-hidden max-h-[340px]' : 'overflow-y-auto max-h-64 custom-scrollbar'}`}>
                       {aniversariosFiltrados.length > 0 ? (
                         aniversariosFiltrados.map((pessoa: any, idx: number) => (
                           <div key={idx} className={`flex justify-between items-center ${itemBg} p-3 rounded-lg border`}>
@@ -427,7 +499,7 @@ export function App() {
                         ))}
                       </div>
                     </div>
-                    <div className="space-y-3 relative z-10 flex-1 overflow-y-auto max-h-64 pr-2 custom-scrollbar">
+                    <div className={`space-y-3 relative z-10 flex-1 pr-2 ${modoImpressao ? 'overflow-hidden max-h-[340px]' : 'overflow-y-auto max-h-64 custom-scrollbar'}`}>
                       {contratosFiltrados.length > 0 ? (
                         contratosFiltrados.map((pessoa: any, idx: number) => {
                           const tagUrgencia = verificarUrgencia(pessoa.dia);
@@ -455,7 +527,7 @@ export function App() {
               
               {modoImpressao && (
                 <div className="mb-6 border-b pb-4 border-slate-200">
-                  <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>2. Saúde Ocupacional & Comportamento</h2>
+                  <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>2. Saúde Ocupacional & Comportamento {setorSelecionado !== "Todos" && <span className="text-emerald-500">- {setorSelecionado}</span>}</h2>
                   <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
                 </div>
               )}
@@ -470,12 +542,12 @@ export function App() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
                 <div className={`${cardBg} p-6 rounded-xl`}>
                   <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Stethoscope className="w-4 h-4 text-emerald-500" /> Médicos Emissores (Top 7)</h3>
-                  <div className="h-64">
+                  <div className={modoImpressao ? "h-[300px]" : "h-64"}>
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={kpis.rankingMedicos} layout="vertical" margin={{ top: 5, right: 40, left: 60, bottom: 5 }}>
+                      <BarChart data={kpis.rankingMedicos} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
                         <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
-                        <YAxis type="category" dataKey="nome" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={120} />
+                        <YAxis type="category" dataKey="nome" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={140} />
                         <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
                         <Bar isAnimationActive={!modoImpressao} dataKey="quantidade" name="Atestados" fill="#10B981" radius={[0, 4, 4, 0]} barSize={16}>
                           <LabelList dataKey="quantidade" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
@@ -486,12 +558,12 @@ export function App() {
                 </div>
                 <div className={`${cardBg} p-6 rounded-xl`}>
                   <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Activity className="w-4 h-4 text-rose-500" /> CIDs Mais Frequentes (Top 10)</h3>
-                  <div className="h-64">
+                  <div className={modoImpressao ? "h-[300px]" : "h-64"}>
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={kpis.rankingCids} layout="vertical" margin={{ top: 5, right: 40, left: 100, bottom: 5 }}>
+                      <BarChart data={kpis.rankingCids} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
                         <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
-                        <YAxis type="category" dataKey="nome" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={160} />
+                        <YAxis type="category" dataKey="nome" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={220} />
                         <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
                         <Bar isAnimationActive={!modoImpressao} dataKey="quantidade" name="Ocorrências" fill="#F43F5E" radius={[0, 4, 4, 0]} barSize={16}>
                           <LabelList dataKey="quantidade" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
@@ -505,7 +577,7 @@ export function App() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
                 <div className={`${cardBg} p-6 rounded-xl flex flex-col`}>
                   <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><TrendingDown className="w-4 h-4 text-rose-500" /> Ofensores de Faltas (Top 5)</h3>
-                  <div className="space-y-3 flex-1 overflow-y-auto max-h-64 pr-2 custom-scrollbar">
+                  <div className={`space-y-3 flex-1 pr-2 ${modoImpressao ? 'overflow-hidden max-h-[340px]' : 'overflow-y-auto max-h-64 custom-scrollbar'}`}>
                     {kpis.rankingFaltas?.length > 0 ? (
                       kpis.rankingFaltas.map((pessoa: any, idx: number) => (
                         <div key={idx} className={`flex justify-between items-center ${itemBg} p-3 rounded-lg border`}>
@@ -521,7 +593,7 @@ export function App() {
                 </div>
                 <div className={`${cardBg} p-6 rounded-xl flex flex-col`}>
                   <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Stethoscope className="w-4 h-4 text-emerald-500" /> Volume de Atestados (Top 5)</h3>
-                  <div className="space-y-3 flex-1 overflow-y-auto max-h-64 pr-2 custom-scrollbar">
+                  <div className={`space-y-3 flex-1 pr-2 ${modoImpressao ? 'overflow-hidden max-h-[340px]' : 'overflow-y-auto max-h-64 custom-scrollbar'}`}>
                     {kpis.rankingAtestados?.length > 0 ? (
                       kpis.rankingAtestados.map((pessoa: any, idx: number) => (
                         <div key={idx} className={`flex justify-between items-center ${itemBg} p-3 rounded-lg border`}>
@@ -544,7 +616,7 @@ export function App() {
               
               {modoImpressao && (
                 <div className="mb-6 border-b pb-4 border-slate-200">
-                  <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>3. Indicadores Financeiros e Passivos</h2>
+                  <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>3. Indicadores Financeiros e Passivos {setorSelecionado !== "Todos" && <span className="text-red-500">- {setorSelecionado}</span>}</h2>
                   <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
                 </div>
               )}
@@ -567,7 +639,7 @@ export function App() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
                 <div className={`${cardBg} p-6 rounded-xl flex flex-col`}>
                   <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Flame className="w-4 h-4 text-rose-500" /> Alerta de Passivo (Férias Vencendo)</h3>
-                  <div className="space-y-3 flex-1 overflow-y-auto max-h-[320px] pr-2 custom-scrollbar">
+                  <div className={`space-y-3 flex-1 pr-2 ${modoImpressao ? 'overflow-hidden max-h-[340px]' : 'overflow-y-auto max-h-[320px] custom-scrollbar'}`}>
                     {kpis.alertasFerias?.length > 0 ? (
                       kpis.alertasFerias.map((pessoa: any, idx: number) => {
                         const critico = pessoa.dias_restantes <= 30; 
@@ -587,12 +659,12 @@ export function App() {
 
                 <div className={`${cardBg} p-6 rounded-xl`}>
                   <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Wallet className="w-4 h-4 text-amber-500" /> Volume de Horas Extras (Por Setor)</h3>
-                  <div className="h-[320px]">
+                  <div className={modoImpressao ? "h-[300px]" : "h-[320px]"}>
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={kpis.graficoHorasExtras} layout="vertical" margin={{ top: 5, right: 40, left: 20, bottom: 5 }}>
+                      <BarChart data={kpis.graficoHorasExtras} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
                         <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
-                        <YAxis type="category" dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={80} />
+                        <YAxis type="category" dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={100} />
                         <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
                         <Bar isAnimationActive={!modoImpressao} dataKey="horas" name="Horas Extras" fill="#F59E0B" radius={[0, 4, 4, 0]} barSize={20}>
                            <LabelList dataKey="horas" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
@@ -605,18 +677,8 @@ export function App() {
             </div>
           )}
 
-          {/* ========================================================= */}
-          {/* NOVA PÁGINA 4: MAPA DE ARMÁRIOS VIRTUAIS COM DADOS REAIS DO NOTION */}
-          {/* ========================================================= */}
-          {(menuAtivo === "armarios" || modoImpressao) && (
-            <div id="print-armarios" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
-              
-              <div className={`mb-6 border-b pb-4 ${modoImpressao ? 'border-slate-200' : 'border-white/5'}`}>
-                <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>{modoImpressao ? '4.' : ''} Gestão de Armários Físicos</h2>
-                <p className={`${textMuted} text-sm`}>Mapeamento de ocupação e manutenção em tempo real conectado ao Notion.</p>
-              </div>
-
-              {/* KPIs DE ARMÁRIOS */}
+          {(menuAtivo === "armarios" && !modoImpressao) && (
+            <div id="print-armarios" className="p-2 rounded-lg">
               <section className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                 <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4 border-l-4 border-l-blue-500`}><div className="p-3 bg-blue-500/10 text-blue-500 rounded-lg"><Package className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Total de Armários</p><h3 className={`text-2xl font-bold ${textColor}`}>{totalArmarios}</h3></div></div>
                 <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4 border-l-4 border-l-emerald-500`}><div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-lg"><Unlock className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Livres</p><h3 className={`text-2xl font-bold ${textColor}`}>{livres}</h3></div></div>
@@ -624,76 +686,39 @@ export function App() {
                 <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4 border-l-4 border-l-orange-500`}><div className="p-3 bg-orange-500/10 text-orange-500 rounded-lg"><Wrench className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Manutenção</p><h3 className={`text-2xl font-bold ${textColor}`}>{manutencao}</h3></div></div>
               </section>
 
-              {/* A "PAREDE" DE ARMÁRIOS */}
               <div className={`${cardBg} p-6 rounded-xl`}>
-                <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Package className="w-4 h-4 text-slate-500" /> Mapa de Ocupação</h3>
-                
-                {/* GRADE RESPONSIVA COM DADOS REAIS */}
+                <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Package className="w-4 h-4 text-slate-500" /> Mapa de Ocupação {setorSelecionado !== "Todos" && <span className="text-slate-400 capitalize">- Somente {setorSelecionado}</span>}</h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                  
                   {armariosReais.length > 0 ? (
                     armariosReais.map((armario:any, index:number) => {
                       let boxStyle = "";
                       let icon = null;
-
-                      if (armario.status === "Livre") {
-                        boxStyle = modoImpressao ? "bg-white border-2 border-emerald-300 shadow-sm" : "bg-[#1A1F2B] border-2 border-emerald-500/30 hover:border-emerald-500 transition-colors";
-                        icon = <Unlock className="w-4 h-4 text-emerald-500 mb-1" />;
-                      } else if (armario.status === "Ocupado") {
-                        boxStyle = modoImpressao ? "bg-indigo-50 border-2 border-indigo-300" : "bg-indigo-500/10 border-2 border-indigo-500/50 hover:border-indigo-400 transition-colors";
-                        icon = <LockKeyhole className="w-4 h-4 text-indigo-500 mb-1" />;
-                      } else if (armario.status === "Manutenção") {
-                        boxStyle = modoImpressao ? "bg-orange-50 border-2 border-orange-300 flex-col items-center justify-center text-center opacity-70" : "bg-[#1A1F2B] border-2 border-dashed border-orange-500/50 flex-col items-center justify-center text-center opacity-60";
-                        icon = <Wrench className="w-4 h-4 text-orange-500 mb-1" />;
-                      }
-
+                      if (armario.status === "Livre") { boxStyle = "bg-[#1A1F2B] border-2 border-emerald-500/30 hover:border-emerald-500 transition-colors"; icon = <Unlock className="w-4 h-4 text-emerald-500 mb-1" />; } 
+                      else if (armario.status === "Ocupado") { boxStyle = "bg-indigo-500/10 border-2 border-indigo-500/50 hover:border-indigo-400 transition-colors"; icon = <LockKeyhole className="w-4 h-4 text-indigo-500 mb-1" />; } 
+                      else if (armario.status === "Manutenção") { boxStyle = "bg-[#1A1F2B] border-2 border-dashed border-orange-500/50 flex-col items-center justify-center text-center opacity-60"; icon = <Wrench className="w-4 h-4 text-orange-500 mb-1" />; }
                       return (
                         <div key={index} className={`relative rounded-xl p-3 flex flex-col justify-between aspect-square cursor-pointer ${boxStyle}`}>
-                          <div className="flex justify-between items-start">
-                            <span className={`text-lg font-black ${modoImpressao ? 'text-slate-800' : 'text-white'}`}>#{armario.num}</span>
-                            {icon}
-                          </div>
-                          
+                          <div className="flex justify-between items-start"><span className="text-lg font-black text-white">#{armario.num}</span>{icon}</div>
                           <div className="mt-2">
-                            <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded flex w-fit mb-1 
-                              ${armario.status === 'Livre' ? 'bg-emerald-500/20 text-emerald-500' : 
-                                armario.status === 'Ocupado' ? 'bg-indigo-500/20 text-indigo-400' : 
-                                'bg-orange-500/20 text-orange-500'}`}>
-                              {armario.status}
-                            </span>
-                            
-                            {armario.status === "Ocupado" && armario.dono && (
-                              <span className={`text-xs font-medium line-clamp-2 leading-tight ${modoImpressao ? 'text-slate-700' : 'text-slate-300'}`}>
-                                {armario.dono}
-                              </span>
-                            )}
-                            {armario.status === "Livre" && (
-                              <span className="text-xs text-emerald-500/70 italic">Disponível</span>
-                            )}
+                            <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded flex w-fit mb-1 ${armario.status === 'Livre' ? 'bg-emerald-500/20 text-emerald-500' : armario.status === 'Ocupado' ? 'bg-indigo-500/20 text-indigo-400' : 'bg-orange-500/20 text-orange-500'}`}>{armario.status}</span>
+                            {armario.status === "Ocupado" && armario.dono && (<span className="text-xs font-medium line-clamp-2 leading-tight text-slate-300">{armario.dono}</span>)}
+                            {armario.status === "Livre" && (<span className="text-xs text-emerald-500/70 italic">Disponível</span>)}
                           </div>
                         </div>
                       );
                     })
-                  ) : (
-                    <div className="col-span-full py-8 text-center border border-dashed border-white/10 rounded-lg">
-                      <p className="text-slate-400 text-sm">Nenhum armário encontrado no banco de dados.</p>
-                    </div>
-                  )}
-                  
+                  ) : (<div className="col-span-full py-8 text-center border border-dashed border-white/10 rounded-lg"><p className="text-slate-400 text-sm">Nenhum armário encontrado no banco de dados.</p></div>)}
                 </div>
               </div>
             </div>
           )}
 
-          {/* ========================================================= */}
-          {/* PÁGINA 5: DESEMPENHO E AVALIAÇÕES */}
-          {/* ========================================================= */}
           {(menuAtivo === "desempenho" || modoImpressao) && (
             <div id="print-desempenho" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
               
               {modoImpressao && (
                 <div className="mb-6 border-b pb-4 border-slate-200">
-                  <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>{modoImpressao ? '5.' : '4.'} Performance e Produtividade</h2>
+                  <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>4. Performance e Produtividade {setorSelecionado !== "Todos" && <span className="text-indigo-500">- {setorSelecionado}</span>}</h2>
                   <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {anoSelecionado}</p>
                 </div>
               )}
@@ -720,6 +745,85 @@ export function App() {
               </div>
             </div>
           )}
+
+          {/* ========================================================= */}
+          {/* NOVA ABA: PROCESSAMENTO DE PONTO (Motor Funcional) */}
+          {/* ========================================================= */}
+          {(menuAtivo === "folha" && !modoImpressao) && (
+            <div className="p-2 rounded-lg fade-in">
+              <div className={`${cardBg} p-8 rounded-xl border border-white/5`}>
+                
+                {resultadoPonto.length === 0 && !processandoPonto && (
+                  <div className="text-center flex flex-col items-center justify-center py-12">
+                    <div className="w-16 h-16 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mb-6">
+                      <UploadCloud className="w-8 h-8" />
+                    </div>
+                    <h2 className={`text-2xl font-bold ${textColor} mb-2`}>Motor de Cartão de Ponto</h2>
+                    <p className={`${textMuted} text-sm max-w-md mx-auto mb-8`}>
+                      Arraste o arquivo <b>sap_009.xls</b>. O sistema cruzará os nomes com o Banco de Dados do Notion, puxará o <b>Salário Base</b> e calculará o desconto exato em R$.
+                    </p>
+                    
+                    <div className="relative w-full max-w-2xl border-2 border-dashed border-slate-600 rounded-xl p-10 hover:border-emerald-500 hover:bg-emerald-500/5 transition-all cursor-pointer group">
+                      <input type="file" accept=".xls,.xlsx,.csv" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                      <UploadCloud className="w-10 h-10 text-slate-500 mx-auto mb-4 group-hover:text-emerald-500 transition-colors" />
+                      <p className="text-slate-300 font-medium">Clique ou arraste o arquivo do ponto aqui</p>
+                      <p className="text-slate-500 text-xs mt-2">Formatos suportados: .xls, .xlsx (Extraídos do SAP)</p>
+                    </div>
+                    {erroPonto && <div className="mt-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm font-medium">{erroPonto}</div>}
+                  </div>
+                )}
+
+                {processandoPonto && (
+                  <div className="text-center py-20 flex flex-col items-center">
+                    <Loader2 className="w-12 h-12 text-emerald-500 animate-spin mb-4" />
+                    <p className="text-white font-bold text-lg">Lendo milhares de linhas e calculando salários...</p>
+                    <p className="text-slate-400 text-sm mt-2">A Mágica da Engenharia de Dados acontecendo.</p>
+                  </div>
+                )}
+
+                {resultadoPonto.length > 0 && !processandoPonto && (
+                  <div>
+                    <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-6">
+                      <div>
+                        <h2 className="text-2xl font-bold text-white flex items-center gap-3"><CheckCircle2 className="w-6 h-6 text-emerald-500"/> Sucesso! Relatório Processado</h2>
+                        <p className="text-slate-400 text-sm mt-1">{resultadoPonto.length} funcionários processados com desconto financeiro calculado.</p>
+                      </div>
+                      <button onClick={() => setResultadoPonto([])} className="px-4 py-2 bg-[#232936] hover:bg-[#2A3142] text-white text-sm font-medium rounded-lg transition-colors border border-white/5">Processar Novo Arquivo</button>
+                    </div>
+
+                    <div className="overflow-x-auto rounded-xl border border-white/10">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-[#232936]">
+                            <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Colaborador</th>
+                            <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Setor</th>
+                            <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Salário Base</th>
+                            <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Tempo Descontado</th>
+                            <th className="p-4 text-xs font-bold text-rose-500 uppercase tracking-wider border-b border-white/10">Impacto (R$)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5 bg-[#1A1F2B]">
+                          {resultadoPonto.map((row, idx) => (
+                            <tr key={idx} className="hover:bg-white/5 transition-colors">
+                              <td className="p-4">
+                                <span className={`text-sm font-medium ${row.salario_base === 0 ? 'text-orange-400' : 'text-white'}`}>{row.nome}</span>
+                              </td>
+                              <td className="p-4 text-sm text-slate-300">{row.setor}</td>
+                              <td className="p-4 text-sm text-slate-400">{formatarMoeda(row.salario_base)}</td>
+                              <td className="p-4"><span className="px-2.5 py-1 bg-[#232936] text-slate-300 rounded text-xs font-bold font-mono border border-white/5">{row.horas_desconto}</span></td>
+                              <td className="p-4 font-bold text-rose-400">{formatarMoeda(row.valor_desconto)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            </div>
+          )}
+
         </div>
       </main>
     </div>
