@@ -123,9 +123,7 @@ export function App() {
       const pdfWidth = pdf.internal.pageSize.getWidth(); 
       const pdfPageHeight = pdf.internal.pageSize.getHeight(); 
       
-      // Agora ele SEMPRE vai imprimir os rankings, não importa o setor selecionado!
-      const paginas = ['print-visao', 'print-comportamento', 'print-ranking-faltas', 
-        'print-ranking-atestados', 'print-ranking-advertencias'];
+      const paginas = ['print-visao', 'print-comportamento', 'print-ranking-faltas', 'print-ranking-atestados', 'print-ranking-advertencias'];
 
       let primeiraPagina = true;
 
@@ -425,7 +423,7 @@ export function App() {
                           <BarChart data={kpis.graficoHeadcount} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
                             <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
                             <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
-                            <YAxis type="category" dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={100} />
+                            <YAxis type="category" dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={120} />
                             <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
                             <Bar isAnimationActive={!modoImpressao} dataKey="quantidade" name="Colaboradores" fill="#34D399" radius={[0, 4, 4, 0]} barSize={20}>
                               <LabelList dataKey="quantidade" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
@@ -458,8 +456,7 @@ export function App() {
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={kpis.graficoSetores} margin={{ top: 25, right: 20, left: -20, bottom: 25 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGrid} />
-                            {/* O EIXO X AGORA NÃO CORTA MAIS OS NOMES! */}
-                            <XAxis dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 10}} interval={0} angle={-30} textAnchor="end" height={60} />
+                            <XAxis dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} interval={0} angle={-45} textAnchor="end" height={85} />
                             <YAxis axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
                             <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
                             <Legend iconType="circle" wrapperStyle={{fontSize: '12px', paddingTop: '10px', color: chartText}} />
@@ -689,7 +686,7 @@ export function App() {
                           <BarChart data={kpis.graficoHorasExtras} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
                             <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
                             <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
-                            <YAxis type="category" dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={100} />
+                            <YAxis type="category" dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={120} />
                             <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
                             <Bar isAnimationActive={!modoImpressao} dataKey="horas" name="Horas Extras" fill="#F59E0B" radius={[0, 4, 4, 0]} barSize={20}>
                               <LabelList dataKey="horas" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
@@ -766,9 +763,6 @@ export function App() {
             </div>
           )}
 
-          {/* ========================================================= */}
-          {/* PÁGINAS EXCLUSIVAS DE TOP 10 (SÓ APARECEM NA IMPRESSÃO) */}
-          {/* ========================================================= */}
           {/* ========================================================= */}
           {/* PÁGINAS DE RANKING DINÂMICO (SÓ APARECEM NA IMPRESSÃO) */}
           {/* ========================================================= */}
