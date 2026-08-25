@@ -252,13 +252,12 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
                     if found:
                         setor_atual_sap = formatar_setor(found[0])
                         
-            # BLINDAGEM UCHOA
+            # BLINDAGEM UCHOA NO PROCESSAMENTO DA FOLHA
             if setor_atual_sap and ("UCHOA" in setor_atual_sap.upper() or "UCHÔA" in setor_atual_sap.upper()):
                 if 'Tot Descontado' in row_str:
                     nome_atual_sap = None 
                 continue 
 
-            # MATEMÁTICA DE FALTAS DIÁRIAS (SOMENTE DIAS ÚTEIS)
             if nome_atual_sap and 'FALTA' in row_str:
                 vals = []
                 for j in [4, 5, 6, 7]: 
@@ -356,14 +355,14 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     ano_int = ano if ano else hoje.year
 
     # ---------------------------------------------------------
-    # CALENDÁRIO 1: CIVIL (Aniversários, Férias, Desempenho)
+    # CALENDÁRIO 1: CIVIL (Admissões, Férias, Aniversários)
     # ---------------------------------------------------------
     inicio_mes_civil = f"{ano_int}-{mes_int:02d}-01"
     ultimo_dia = calendar.monthrange(ano_int, mes_int)[1]
     fim_mes_civil = f"{ano_int}-{mes_int:02d}-{ultimo_dia}"
 
     # ---------------------------------------------------------
-    # CALENDÁRIO 2: FISCAL/FOLHA (Atestados, Faltas, DP)
+    # CALENDÁRIO 2: FISCAL/FOLHA (Faltas, Atestados, Advertências)
     # ---------------------------------------------------------
     if mes_int == 1:
         mes_anterior = 12
@@ -372,8 +371,8 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
         mes_anterior = mes_int - 1
         ano_anterior = ano_int
 
-    inicio_mes_fiscal = f"{ano_anterior}-{mes_anterior:02d}-26"
-    fim_mes_fiscal = f"{ano_int}-{mes_int:02d}-25"
+    inicio_mes_fiscal = f"{ano_anterior}-{mes_anterior:02d}-25"
+    fim_mes_fiscal = f"{ano_int}-{mes_int:02d}-24"
 
     todos_colab = ler_do_banco("colaboradores") or []
     todos_deslig = ler_do_banco("desligamentos") or []
@@ -387,26 +386,15 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     ativos_itens = [i for i in todos_colab if extrair_texto(i.get("properties", {}), "Status") == "Ativo"]
     admissoes_itens = [i for i in todos_colab if inicio_mes_civil <= extrair_texto(i.get("properties", {}), "Data de admissão")[:10] <= fim_mes_civil]
     
-    # NOVO: Filtro Dinâmico de Data para Avaliação de Desempenho
-    avaliacoes_filtradas = []
-    for item in avaliacoes_itens:
-        props = item.get("properties", {})
-        dt_aval = extrair_texto(props, "Data da Avaliação")
-        if dt_aval == "Outros / Não Informado": 
-            dt_aval = extrair_texto(props, "Data")
-            
-        if dt_aval != "Outros / Não Informado" and inicio_mes_civil <= dt_aval[:10] <= fim_mes_civil:
-            avaliacoes_filtradas.append(item)
-    avaliacoes_itens = avaliacoes_filtradas
-    
     # Aplicação do Calendário Fiscal (DP)
     desligamentos_itens = [i for i in todos_deslig if inicio_mes_fiscal <= extrair_texto(i.get("properties", {}), "Data de Desligamento")[:10] <= fim_mes_fiscal]
     desligamentos_ano = [i for i in todos_deslig if extrair_texto(i.get("properties", {}), "Data de Desligamento")[:4] == str(ano_int)]
     atestados_itens = [i for i in todos_atestados if inicio_mes_fiscal <= extrair_texto(i.get("properties", {}), "Data de Entrega")[:10] <= fim_mes_fiscal]
     advertencias_itens = [i for i in todos_adv if inicio_mes_fiscal <= extrair_texto(i.get("properties", {}), "Data da Advertência")[:10] <= fim_mes_fiscal]
 
-    # Prepara lista de Setores formatada para o Select do topo da tela
+    # Prepara lista de Setores (já esconde Uchoa e formata bonito)
     setores_unicos = set([formatar_setor(extrair_texto(i.get("properties", {}), "Setor")) for i in ativos_itens])
+    if "Uchoa" in setores_unicos: setores_unicos.remove("Uchoa")
     lista_setores = sorted(list(setores_unicos))
 
     if setor != "Todos":
@@ -417,13 +405,23 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
         advertencias_itens = [i for i in advertencias_itens if formatar_setor(extrair_texto(i.get("properties", {}), "Setor")) == setor]
         desligamentos_ano = [i for i in desligamentos_ano if formatar_setor(extrair_texto(i.get("properties", {}), "Setor")) == setor]
         avaliacoes_itens = [i for i in avaliacoes_itens if formatar_setor(extrair_texto(i.get("properties", {}), "Setor")) == setor]
+        armarios_itens = [i for i in armarios_itens if formatar_setor(extrair_texto(i.get("properties", {}), "Setor")) == setor]
 
     total_ativos = len(ativos_itens)
     dict_perfis = {}
     
     def get_nome_correto(props):
-        nome = extrair_texto(props, "Funcionário")
-        if nome == "Outros / Não Informado": nome = extrair_texto(props, "Nome")
+        nome = "Outros / Não Informado"
+        if "Funcionário" in props:
+            prop = props["Funcionário"]
+            if prop["type"] == "rich_text" and prop.get("rich_text"): nome = prop["rich_text"][0]["plain_text"]
+            elif prop["type"] == "title" and prop.get("title"): nome = prop["title"][0]["plain_text"]
+            elif prop["type"] == "rollup" and prop.get("rollup"): 
+                arr = prop["rollup"].get("array", [])
+                if arr and arr[0].get("title"): nome = arr[0]["title"][0]["plain_text"]
+                elif arr and arr[0].get("rich_text"): nome = arr[0]["rich_text"][0]["plain_text"]
+        if nome == "Outros / Não Informado" and "Nome" in props:
+            nome = extrair_texto(props, "Nome")
         return nome
 
     def iniciar_perfil(nome):
@@ -472,6 +470,8 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     dict_setores = {}
     for item in atestados_itens:
         s = formatar_setor(extrair_texto(item.get("properties", {}), "Setor"))
+        # BLINDAGEM UCHOA EM ATESTADOS
+        if "Uchoa" in s: continue
         if s not in dict_setores: dict_setores[s] = {"setor": s, "atestados": 0, "faltas": 0}
         dict_setores[s]["atestados"] += 1
 
@@ -493,7 +493,10 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
             
         for rec in cursor.fetchall():
             setor_f = formatar_setor(rec[1])
-            if setor != "Todos" and setor_f != setor:
+            # BLINDAGEM UCHOA NO HISTÓRICO LOCAL
+            if "Uchoa" in setor_f: continue
+            
+            if setor != "Todos" and setor_f != formatar_setor(setor):
                 continue
 
             nome_f = rec[0]
@@ -521,8 +524,12 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
         dt = extrair_texto(item.get("properties", {}), "Data")
         if dt != "Outros / Não Informado" and inicio_mes_fiscal <= dt[:10] <= fim_mes_fiscal:
             props = item.get("properties", {})
-            nome = get_nome_correto(props)
             setor_freq = formatar_setor(extrair_texto(props, "Setor"))
+            
+            # BLINDAGEM UCHOA NA FREQUÊNCIA DO NOTION
+            if "Uchoa" in setor_freq: continue
+            
+            nome = get_nome_correto(props)
             iniciar_perfil(nome)
             
             prop_dias = props.get("Dias") or props.get("# Dias") or {}
@@ -545,6 +552,11 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     dict_ranking_atestados, dict_medicos, dict_cids = {}, {}, {}
     for item in atestados_itens:
         props = item.get("properties", {})
+        setor_atst = formatar_setor(extrair_texto(props, "Setor"))
+        
+        # BLINDAGEM UCHOA NOS ATESTADOS INDIVIDUAIS
+        if "Uchoa" in setor_atst: continue
+        
         nome = get_nome_correto(props)
         iniciar_perfil(nome)
         dict_ranking_atestados[nome] = dict_ranking_atestados.get(nome, 0) + 1
@@ -567,6 +579,9 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     dict_adv = {}
     for item in advertencias_itens:
         props = item.get("properties", {})
+        setor_adv = formatar_setor(extrair_texto(props, "Setor"))
+        if "Uchoa" in setor_adv: continue
+        
         nome = get_nome_correto(props)
         iniciar_perfil(nome)
         motivo = extrair_texto(props, "Motivo")
@@ -619,6 +634,7 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     dict_headcount = {}
     for item in ativos_itens:
         s = formatar_setor(extrair_texto(item.get("properties", {}), "Setor"))
+        if "Uchoa" in s: continue
         if s not in dict_headcount: dict_headcount[s] = 0
         dict_headcount[s] += 1
     grafico_headcount = sorted([{"setor": k, "quantidade": v} for k, v in dict_headcount.items()], key=lambda x: x["quantidade"], reverse=True)
