@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { LayoutDashboard, Users, UserPlus, UserMinus, Activity, Stethoscope, AlertOctagon, Clock, Star, UsersRound, Download, TrendingDown, Lock, PieChart as PieChartIcon, DollarSign, Calendar, Gift, BellRing, AlertTriangle, Loader2, X, Briefcase, HeartPulse, Wallet, CalendarRange, Flame, Package, LockKeyhole, Unlock, Wrench, UploadCloud, RefreshCw, FileText, CheckCircle2 } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, UserMinus, Activity, Stethoscope, AlertOctagon, Clock, Star, UsersRound, Download, TrendingDown, Lock, PieChart as PieChartIcon, DollarSign, Calendar, Gift, BellRing, AlertTriangle, Loader2, X, Briefcase, HeartPulse, Wallet, CalendarRange, Flame, Package, LockKeyhole, Unlock, Wrench, UploadCloud, RefreshCw, CheckCircle2 } from 'lucide-react';
 import html2canvas from 'html2canvas-pro';
 import { jsPDF } from 'jspdf';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, LabelList } from 'recharts';
@@ -26,8 +26,6 @@ export function App() {
   const [modoImpressao, setModoImpressao] = useState(false);
   const [modal360, setModal360] = useState<string | null>(null);
 
-  // --- ESTADOS DO CARTÃO DE PONTO ---
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [processandoPonto, setProcessandoPonto] = useState(false);
   const [resultadoPonto, setResultadoPonto] = useState<any[]>([]);
   const [erroPonto, setErroPonto] = useState("");
@@ -36,7 +34,7 @@ export function App() {
     funcionarios: "-", admissoes: "-", desligamentos: "-", turnover: "-", 
     atestados: "-", advertencias: "-", faltas: "-", atrasos: "-", avaliacoes: "-",
     custo_absenteismo: 0, graficoSetores: [], graficoTurnover: [], graficoMotivos: [], graficoHeadcount: [],
-    alertasAniversarios: [], alertasContratos: [], graficoAdvertencias: [], rankingFaltas: [], rankingAtestados: [],
+    alertasAniversarios: [], alertasContratos: [], graficoAdvertencias: [], rankingFaltas: [], rankingAtestados: [], rankingAdvertencias: [],
     rankingMedicos: [], rankingCids: [], graficoRadar: [], perfis360: {} as Record<string, any>,
     alertasFerias: [], totalHorasExtras: 0, graficoHorasExtras: [], armarios: [], setoresDisponiveis: [] 
   });
@@ -84,75 +82,35 @@ export function App() {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor));
   };
 
-  // --- NOVA FUNÇÃO DE UPLOAD DO PONTO ---
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    
-    setProcessandoPonto(true);
-    setErroPonto("");
-    setResultadoPonto([]);
-
-    const formData = new FormData();
-    formData.append("arquivo", file);
-
+    setProcessandoPonto(true); setErroPonto(""); setResultadoPonto([]);
+    const formData = new FormData(); formData.append("arquivo", file);
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/processar_ponto", {
-        method: "POST",
-        body: formData,
-      });
+      const response = await fetch("http://127.0.0.1:8000/api/processar_ponto", { method: "POST", body: formData });
       const data = await response.json();
-      
-      if (data.sucesso) {
-        setResultadoPonto(data.dados);
-      } else {
-        setErroPonto(data.erro || "Falha ao processar o arquivo SAP.");
-      }
-    } catch (err) {
-      setErroPonto("Erro de conexão. O servidor Python está rodando?");
-    } finally {
-      setProcessandoPonto(false);
-    }
+      if (data.sucesso) { setResultadoPonto(data.dados); } else { setErroPonto(data.erro || "Falha ao processar o arquivo SAP."); }
+    } catch (err) { setErroPonto("Erro de conexão. O servidor Python está rodando?"); } 
+    finally { setProcessandoPonto(false); }
   };
 
-  // --- FUNÇÃO PARA SALVAR OS LANÇAMENTOS NO BANCO DE DADOS ---
   const [salvandoFolha, setSalvandoFolha] = useState(false);
   const [mensagemFolha, setMensagemFolha] = useState("");
 
   const handleSalvarFolha = async () => {
     if (resultadoPonto.length === 0) return;
-    setSalvandoFolha(true);
-    setMensagemFolha("");
-
+    setSalvandoFolha(true); setMensagemFolha("");
     try {
-      const payload = {
-        mes: mesSelecionado,
-        ano: anoSelecionado,
-        lancamentos: resultadoPonto
-      };
-
-      const resposta = await fetch("http://127.0.0.1:8000/api/salvar_folha", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
+      const payload = { mes: mesSelecionado, ano: anoSelecionado, lancamentos: resultadoPonto };
+      const resposta = await fetch("http://127.0.0.1:8000/api/salvar_folha", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const dados = await resposta.json();
-      
       if (dados.sucesso) {
         setMensagemFolha("✅ Salvo com sucesso! Histórico auditável gerado.");
-        setTimeout(() => {
-          setResultadoPonto([]);
-          setMensagemFolha("");
-          carregarDadosDashboard(); // Recarrega os KPIs na hora para atualizar o gráfico!
-        }, 3000);
-      } else {
-        setMensagemFolha(`❌ Erro ao salvar: ${dados.erro}`);
-      }
-    } catch (err) {
-      setMensagemFolha("❌ Erro de conexão com o servidor Python.");
-    } finally {
-      setSalvandoFolha(false);
-    }
+        setTimeout(() => { setResultadoPonto([]); setMensagemFolha(""); carregarDadosDashboard(); }, 3000);
+      } else { setMensagemFolha(`❌ Erro ao salvar: ${dados.erro}`); }
+    } catch (err) { setMensagemFolha("❌ Erro de conexão com o servidor Python."); } 
+    finally { setSalvandoFolha(false); }
   };
   
   const exportarPDF = async () => {
@@ -165,7 +123,10 @@ export function App() {
       const pdfWidth = pdf.internal.pageSize.getWidth(); 
       const pdfPageHeight = pdf.internal.pageSize.getHeight(); 
       
-      const paginas = ['print-visao', 'print-comportamento', 'print-financeiro', 'print-desempenho'];
+      // Agora ele SEMPRE vai imprimir os rankings, não importa o setor selecionado!
+      const paginas = ['print-visao', 'print-comportamento', 'print-ranking-faltas', 
+        'print-ranking-atestados', 'print-ranking-advertencias'];
+
       let primeiraPagina = true;
 
       for (const pageId of paginas) {
@@ -422,299 +383,325 @@ export function App() {
           )}
 
           {(menuAtivo === "visao_geral" || modoImpressao) && (
-            <div id="print-visao" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
-              
-              <div className={`mb-6 border-b pb-4 ${modoImpressao ? 'border-slate-200' : 'border-white/5'}`}>
-                <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>1. Sumário Executivo {setorSelecionado !== "Todos" && <span className="text-blue-500">- {setorSelecionado}</span>}</h2>
-                <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
+            <>
+              {/* ÁREA CAPTURADA PELO PDF */}
+              <div id="print-visao" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
+                <div className={`mb-6 border-b pb-4 ${modoImpressao ? 'border-slate-200' : 'border-white/5'}`}>
+                  <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>1. Sumário Executivo {setorSelecionado !== "Todos" && <span className="text-blue-500">- {setorSelecionado}</span>}</h2>
+                  <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
+                </div>
+
+                <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-blue-500/10 text-blue-500 rounded-lg"><Users className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Ativos</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.funcionarios}</h3></div></div>
+                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-lg"><UserPlus className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Admissões</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.admissoes}</h3></div></div>
+                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-rose-500/10 text-rose-500 rounded-lg"><UserMinus className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Desligamentos</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.desligamentos}</h3></div></div>
+                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-purple-500/10 text-purple-500 rounded-lg"><Activity className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Turnover</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.turnover}</h3></div></div>
+                </section>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4 mb-8">
+                  <div className={`${cardBg} p-6 rounded-xl`}>
+                    <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><TrendingDown className="w-4 h-4 text-purple-500" /> Evolução do Turnover</h3>
+                    <div className={modoImpressao ? "h-[300px]" : "h-64"}>
+                      {kpis.graficoTurnover.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={kpis.graficoTurnover} margin={{ top: 25, right: 30, left: -20, bottom: 15 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGrid} />
+                            <XAxis dataKey="mes" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
+                            <YAxis axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} tickFormatter={(value) => `${value}%`} />
+                            <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} itemStyle={{color: tooltipColor}} />
+                            <Line isAnimationActive={!modoImpressao} type="monotone" dataKey="turnover" name="Turnover %" stroke="#818CF8" strokeWidth={3} dot={{r: 4, fill: '#818CF8', strokeWidth: 2, stroke: modoImpressao ? '#fff' : '#1A1F2B'}} activeDot={{r: 6}}>
+                              <LabelList dataKey="turnover" position="top" fill={chartText} fontSize={11} formatter={(v:any) => `${v}%`} />
+                            </Line>
+                          </LineChart>
+                        </ResponsiveContainer>
+                      ) : (<div className="flex h-full items-center justify-center text-slate-500 text-sm italic">Sem dados de turnover.</div>)}
+                    </div>
+                  </div>
+                  <div className={`${cardBg} p-6 rounded-xl`}>
+                    <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><UsersRound className="w-4 h-4 text-emerald-500" /> Headcount por Setor</h3>
+                    <div className={modoImpressao ? "h-[300px]" : "h-64"}>
+                      {kpis.graficoHeadcount.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={kpis.graficoHeadcount} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
+                            <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
+                            <YAxis type="category" dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={100} />
+                            <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
+                            <Bar isAnimationActive={!modoImpressao} dataKey="quantidade" name="Colaboradores" fill="#34D399" radius={[0, 4, 4, 0]} barSize={20}>
+                              <LabelList dataKey="quantidade" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (<div className="flex h-full items-center justify-center text-slate-500 text-sm italic">Sem dados de headcount.</div>)}
+                    </div>
+                  </div>
+                  <div className={`${cardBg} p-6 rounded-xl`}>
+                    <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><PieChartIcon className="w-4 h-4 text-blue-500" /> Motivos de Desligamento</h3>
+                    <div className={modoImpressao ? "h-[300px]" : "h-64 flex justify-center"}>
+                      {kpis.graficoMotivos.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart margin={{ bottom: 15 }}>
+                            <Pie isAnimationActive={!modoImpressao} data={kpis.graficoMotivos} innerRadius={50} outerRadius={85} paddingAngle={5} dataKey="value" stroke="none" label={({name, value}) => `${name.substring(0,10)}... (${value})`} labelLine={true}>
+                              {kpis.graficoMotivos.map((entry, index) => (<Cell key={`cell-${index}`} fill={CORES_DONUT[index % CORES_DONUT.length]} />))}
+                            </Pie>
+                            <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} itemStyle={{color: tooltipColor}} />
+                            <Legend iconType="circle" wrapperStyle={{fontSize: '11px', color: chartText}} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (<div className="flex h-full items-center justify-center text-slate-500 text-sm italic">Sem dados de desligamentos.</div>)}
+                    </div>
+                  </div>
+                  <div className={`${cardBg} p-6 rounded-xl`}>
+                    <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Activity className="w-4 h-4 text-rose-500" /> Absenteísmo por Setor</h3>
+                    <div className={modoImpressao ? "h-[300px]" : "h-64"}>
+                      {kpis.graficoSetores.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={kpis.graficoSetores} margin={{ top: 25, right: 20, left: -20, bottom: 25 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGrid} />
+                            {/* O EIXO X AGORA NÃO CORTA MAIS OS NOMES! */}
+                            <XAxis dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 10}} interval={0} angle={-30} textAnchor="end" height={60} />
+                            <YAxis axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
+                            <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
+                            <Legend iconType="circle" wrapperStyle={{fontSize: '12px', paddingTop: '10px', color: chartText}} />
+                            <Bar isAnimationActive={!modoImpressao} dataKey="faltas" name="Faltas" fill="#F43F5E" radius={[4, 4, 0, 0]}>
+                              <LabelList dataKey="faltas" position="top" fill={chartText} fontSize={11} />
+                            </Bar>
+                            <Bar isAnimationActive={!modoImpressao} dataKey="atestados" name="Atestados" fill="#FBBF24" radius={[4, 4, 0, 0]}>
+                              <LabelList dataKey="atestados" position="top" fill={chartText} fontSize={11} />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (<div className="flex h-full items-center justify-center text-slate-500 text-sm italic">Sem dados de absenteísmo.</div>)}
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-blue-500/10 text-blue-500 rounded-lg"><Users className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Ativos</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.funcionarios}</h3></div></div>
-                <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-lg"><UserPlus className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Admissões</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.admissoes}</h3></div></div>
-                <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-rose-500/10 text-rose-500 rounded-lg"><UserMinus className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Desligamentos</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.desligamentos}</h3></div></div>
-                <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-purple-500/10 text-purple-500 rounded-lg"><Activity className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Turnover</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.turnover}</h3></div></div>
-              </section>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4 mb-8">
-                <div className={`${cardBg} p-6 rounded-xl`}>
-                  <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><TrendingDown className="w-4 h-4 text-purple-500" /> Evolução do Turnover</h3>
-                  <div className={modoImpressao ? "h-[300px]" : "h-64"}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={kpis.graficoTurnover} margin={{ top: 25, right: 30, left: -20, bottom: 15 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGrid} />
-                        <XAxis dataKey="mes" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
-                        <YAxis axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} tickFormatter={(value) => `${value}%`} />
-                        <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} itemStyle={{color: tooltipColor}} />
-                        <Line isAnimationActive={!modoImpressao} type="monotone" dataKey="turnover" name="Turnover %" stroke="#818CF8" strokeWidth={3} dot={{r: 4, fill: '#818CF8', strokeWidth: 2, stroke: modoImpressao ? '#fff' : '#1A1F2B'}} activeDot={{r: 6}}>
-                          <LabelList dataKey="turnover" position="top" fill={chartText} fontSize={11} formatter={(v:any) => `${v}%`} />
-                        </Line>
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-                <div className={`${cardBg} p-6 rounded-xl`}>
-                  <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><UsersRound className="w-4 h-4 text-emerald-500" /> Headcount por Setor</h3>
-                  <div className={modoImpressao ? "h-[300px]" : "h-64"}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={kpis.graficoHeadcount} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
-                        <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
-                        <YAxis type="category" dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={100} />
-                        <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
-                        <Bar isAnimationActive={!modoImpressao} dataKey="quantidade" name="Colaboradores" fill="#34D399" radius={[0, 4, 4, 0]} barSize={20}>
-                          <LabelList dataKey="quantidade" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-                <div className={`${cardBg} p-6 rounded-xl`}>
-                  <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><PieChartIcon className="w-4 h-4 text-blue-500" /> Motivos de Desligamento</h3>
-                  <div className={modoImpressao ? "h-[300px]" : "h-64 flex justify-center"}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart margin={{ bottom: 15 }}>
-                        <Pie isAnimationActive={!modoImpressao} data={kpis.graficoMotivos} innerRadius={50} outerRadius={85} paddingAngle={5} dataKey="value" stroke="none" label={({name, value}) => `${name.substring(0,10)}... (${value})`} labelLine={true}>
-                          {kpis.graficoMotivos.map((entry, index) => (<Cell key={`cell-${index}`} fill={CORES_DONUT[index % CORES_DONUT.length]} />))}
-                        </Pie>
-                        <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} itemStyle={{color: tooltipColor}} />
-                        <Legend iconType="circle" wrapperStyle={{fontSize: '11px', color: chartText}} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-                <div className={`${cardBg} p-6 rounded-xl`}>
-                  <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Activity className="w-4 h-4 text-rose-500" /> Absenteísmo por Setor</h3>
-                  <div className={modoImpressao ? "h-[300px]" : "h-64"}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={kpis.graficoSetores} margin={{ top: 25, right: 20, left: -20, bottom: 15 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGrid} />
-                        <XAxis dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
-                        <YAxis axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
-                        <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
-                        <Legend iconType="circle" wrapperStyle={{fontSize: '12px', paddingTop: '10px', color: chartText}} />
-                        <Bar isAnimationActive={!modoImpressao} dataKey="faltas" name="Faltas" fill="#F43F5E" radius={[4, 4, 0, 0]}>
-                          <LabelList dataKey="faltas" position="top" fill={chartText} fontSize={11} />
-                        </Bar>
-                        <Bar isAnimationActive={!modoImpressao} dataKey="atestados" name="Atestados" fill="#FBBF24" radius={[4, 4, 0, 0]}>
-                          <LabelList dataKey="atestados" position="top" fill={chartText} fontSize={11} />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
-
-              <div className={`border-t ${modoImpressao ? 'border-slate-200' : 'border-white/5'} pt-8 mt-4`}>
-                <h2 className={`text-xl font-bold ${textColor} tracking-tight mb-6 flex items-center gap-3`}>Alertas Operacionais & Clima</h2>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  
-                  <div className={`${cardBg} p-6 rounded-xl flex flex-col h-full`}>
-                    <div className="flex justify-between items-center mb-6">
-                      <h3 className={`text-sm font-bold ${titleColor} flex items-center gap-2 uppercase tracking-wider`}><Gift className="w-4 h-4 text-amber-500" /> Aniversariantes</h3>
-                      <div className="flex gap-1 bg-black/20 p-1 rounded-lg border border-white/5">
-                        {['Tds', 'S1', 'S2', 'S3', 'S4'].map((label, i) => (
-                          <button key={i} onClick={() => setFiltroSemana(i)} className={`text-[10px] font-bold px-2 py-1 rounded transition-colors ${filtroSemana === i ? 'bg-amber-500/20 text-amber-400' : 'text-slate-500 hover:text-slate-300'}`}>{label}</button>
-                        ))}
+              {/* TELA DE ALERTAS SOMENTE APARECE FORA DA IMPRESSÃO */}
+              {!modoImpressao && (
+                <div className={`border-t border-white/5 pt-8 mt-4`}>
+                  <h2 className={`text-xl font-bold ${textColor} tracking-tight mb-6 flex items-center gap-3`}>Alertas Operacionais & Clima</h2>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    
+                    <div className={`${cardBg} p-6 rounded-xl flex flex-col h-full`}>
+                      <div className="flex justify-between items-center mb-6">
+                        <h3 className={`text-sm font-bold ${titleColor} flex items-center gap-2 uppercase tracking-wider`}><Gift className="w-4 h-4 text-amber-500" /> Aniversariantes</h3>
+                        <div className="flex gap-1 bg-black/20 p-1 rounded-lg border border-white/5">
+                          {['Tds', 'S1', 'S2', 'S3', 'S4'].map((label, i) => (
+                            <button key={i} onClick={() => setFiltroSemana(i)} className={`text-[10px] font-bold px-2 py-1 rounded transition-colors ${filtroSemana === i ? 'bg-amber-500/20 text-amber-400' : 'text-slate-500 hover:text-slate-300'}`}>{label}</button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                    <div className={`space-y-3 flex-1 pr-2 ${modoImpressao ? 'overflow-hidden max-h-[340px]' : 'overflow-y-auto max-h-64 custom-scrollbar'}`}>
-                      {aniversariosFiltrados.length > 0 ? (
-                        aniversariosFiltrados.map((pessoa: any, idx: number) => (
-                          <div key={idx} className={`flex justify-between items-center ${itemBg} p-3 rounded-lg border`}>
-                            <span className={`text-sm font-medium ${textColor} ${!modoImpressao ? 'cursor-pointer hover:text-blue-400 hover:underline transition-all' : ''}`} onClick={() => !modoImpressao && setModal360(pessoa.nome)}>{pessoa.nome}</span>
-                            <span className={`text-amber-600 text-xs font-bold px-2 py-1 ${modoImpressao ? 'bg-amber-100' : 'bg-amber-400/10 text-amber-400'} rounded-md`}>Dia {pessoa.dia}</span>
-                          </div>
-                        ))
-                      ) : (<p className={`text-sm ${textMuted} italic p-3 ${modoImpressao ? 'bg-slate-50' : 'bg-[#232936]/50'} rounded-lg border border-dashed text-center mt-4`}>Nenhum aniversariante.</p>)}
-                    </div>
-                  </div>
-
-                  <div className={`${cardBg} p-6 rounded-xl flex flex-col h-full`}>
-                    <div className="flex justify-between items-center mb-6 relative z-10">
-                      <h3 className={`text-sm font-bold ${titleColor} flex items-center gap-2 uppercase tracking-wider`}><BellRing className="w-4 h-4 text-rose-500" /> Experiência</h3>
-                      <div className="flex gap-1 bg-black/20 p-1 rounded-lg border border-white/5">
-                        {['45 Dias', '90 Dias'].map((label) => (
-                          <button key={label} onClick={() => setFiltroContrato(label)} className={`text-[10px] font-bold px-2 py-1 rounded transition-colors ${filtroContrato === label ? 'bg-rose-500/20 text-rose-400' : 'text-slate-500 hover:text-slate-300'}`}>{label}</button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className={`space-y-3 relative z-10 flex-1 pr-2 ${modoImpressao ? 'overflow-hidden max-h-[340px]' : 'overflow-y-auto max-h-64 custom-scrollbar'}`}>
-                      {contratosFiltrados.length > 0 ? (
-                        contratosFiltrados.map((pessoa: any, idx: number) => {
-                          const tagUrgencia = verificarUrgencia(pessoa.dia);
-                          const isUrgente = tagUrgencia !== null;
-                          return (
-                            <div key={idx} className={`flex justify-between items-center p-3 rounded-lg border ${isUrgente ? (modoImpressao ? 'bg-red-50 border-red-200' : 'bg-red-500/10 border-red-500/30') : `${itemBg} border-l-2 ${modoImpressao ? 'border-l-rose-500' : 'border-l-rose-500'}`}`}>
-                              <div className="flex flex-col">
-                                <span className={`text-sm font-medium ${isUrgente ? 'text-red-500' : textColor} ${!modoImpressao ? 'cursor-pointer hover:text-blue-400 hover:underline transition-all' : ''}`} onClick={() => !modoImpressao && setModal360(pessoa.nome)}>{pessoa.nome}</span>
-                                {isUrgente && <span className="text-[10px] text-red-500 font-bold mt-0.5 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> {tagUrgencia}</span>}
-                              </div>
-                              <span className={`${isUrgente ? (modoImpressao ? 'text-red-600 bg-red-100' : 'text-red-400 bg-red-400/10') : (modoImpressao ? 'text-rose-600 bg-rose-100' : 'text-rose-400 bg-rose-400/10')} text-xs font-bold px-2 py-1 rounded-md`}>Dia {pessoa.dia}</span>
+                      <div className="space-y-3 flex-1 pr-2 overflow-y-auto max-h-64 custom-scrollbar">
+                        {aniversariosFiltrados.length > 0 ? (
+                          aniversariosFiltrados.map((pessoa: any, idx: number) => (
+                            <div key={idx} className={`flex justify-between items-center ${itemBg} p-3 rounded-lg border`}>
+                              <span className={`text-sm font-medium ${textColor} cursor-pointer hover:text-blue-400 hover:underline transition-all`} onClick={() => setModal360(pessoa.nome)}>{pessoa.nome}</span>
+                              <span className={`text-amber-600 text-xs font-bold px-2 py-1 bg-amber-400/10 text-amber-400 rounded-md`}>Dia {pessoa.dia}</span>
                             </div>
-                          )
-                        })
-                      ) : (<p className={`text-sm ${textMuted} italic p-3 ${modoImpressao ? 'bg-slate-50' : 'bg-[#232936]/50'} rounded-lg border border-dashed text-center mt-4`}>Nenhum contrato vencendo.</p>)}
+                          ))
+                        ) : (<p className="text-sm text-slate-400 italic p-3 bg-[#232936]/50 rounded-lg border border-dashed text-center mt-4">Nenhum aniversariante.</p>)}
+                      </div>
+                    </div>
+
+                    <div className={`${cardBg} p-6 rounded-xl flex flex-col h-full`}>
+                      <div className="flex justify-between items-center mb-6 relative z-10">
+                        <h3 className={`text-sm font-bold ${titleColor} flex items-center gap-2 uppercase tracking-wider`}><BellRing className="w-4 h-4 text-rose-500" /> Experiência</h3>
+                        <div className="flex gap-1 bg-black/20 p-1 rounded-lg border border-white/5">
+                          {['45 Dias', '90 Dias'].map((label) => (
+                            <button key={label} onClick={() => setFiltroContrato(label)} className={`text-[10px] font-bold px-2 py-1 rounded transition-colors ${filtroContrato === label ? 'bg-rose-500/20 text-rose-400' : 'text-slate-500 hover:text-slate-300'}`}>{label}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-3 relative z-10 flex-1 pr-2 overflow-y-auto max-h-64 custom-scrollbar">
+                        {contratosFiltrados.length > 0 ? (
+                          contratosFiltrados.map((pessoa: any, idx: number) => {
+                            const tagUrgencia = verificarUrgencia(pessoa.dia);
+                            const isUrgente = tagUrgencia !== null;
+                            return (
+                              <div key={idx} className={`flex justify-between items-center p-3 rounded-lg border ${isUrgente ? 'bg-red-500/10 border-red-500/30' : `${itemBg} border-l-2 border-l-rose-500`}`}>
+                                <div className="flex flex-col">
+                                  <span className={`text-sm font-medium ${isUrgente ? 'text-red-500' : textColor} cursor-pointer hover:text-blue-400 hover:underline transition-all`} onClick={() => setModal360(pessoa.nome)}>{pessoa.nome}</span>
+                                  {isUrgente && <span className="text-[10px] text-red-500 font-bold mt-0.5 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> {tagUrgencia}</span>}
+                                </div>
+                                <span className={`${isUrgente ? 'text-red-400 bg-red-400/10' : 'text-rose-400 bg-rose-400/10'} text-xs font-bold px-2 py-1 rounded-md`}>Dia {pessoa.dia}</span>
+                              </div>
+                            )
+                          })
+                        ) : (<p className="text-sm text-slate-400 italic p-3 bg-[#232936]/50 rounded-lg border border-dashed text-center mt-4">Nenhum contrato vencendo.</p>)}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
+              )}
+            </>
           )}
 
           {(menuAtivo === "comportamento" || modoImpressao) && (
-            <div id="print-comportamento" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
-              
-              {modoImpressao && (
-                <div className="mb-6 border-b pb-4 border-slate-200">
-                  <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>2. Saúde Ocupacional & Comportamento {setorSelecionado !== "Todos" && <span className="text-emerald-500">- {setorSelecionado}</span>}</h2>
-                  <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
+            <>
+              {/* ÁREA CAPTURADA PELO PDF */}
+              <div id="print-comportamento" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
+                {modoImpressao && (
+                  <div className="mb-6 border-b pb-4 border-slate-200">
+                    <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>2. Saúde Ocupacional & Comportamento {setorSelecionado !== "Todos" && <span className="text-emerald-500">- {setorSelecionado}</span>}</h2>
+                    <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
+                  </div>
+                )}
+
+                <section className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-amber-500/10 text-amber-500 rounded-lg"><Stethoscope className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Atestados</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.atestados}</h3></div></div>
+                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-orange-500/10 text-orange-500 rounded-lg"><AlertOctagon className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Advertências</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.advertencias}</h3></div></div>
+                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-rose-500/10 text-rose-500 rounded-lg"><Clock className="w-6 h-6" /></div><div className="flex-1"><p className={`text-xs ${textMuted} font-bold uppercase mb-1`}>Frequência</p><div className="flex items-center gap-6"><div><span className={`text-2xl font-bold ${textColor}`}>{kpis.faltas}</span><span className={`text-[10px] ${textMuted} ml-1 font-bold uppercase`}>Faltas</span></div><div className={`w-px h-8 ${modoImpressao ? 'bg-slate-200' : 'bg-white/10'}`}></div><div><span className={`text-2xl font-bold ${textColor}`}>{kpis.atrasos}</span><span className={`text-[10px] ${textMuted} ml-1 font-bold uppercase`}>Atrasos</span></div></div></div></div>
+                  <div className={`${cardBg} border-red-200 p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-red-500/10 text-red-500 rounded-lg z-10"><DollarSign className="w-6 h-6" /></div><div className="z-10"><p className="text-xs text-red-500 font-bold uppercase mb-1">Impacto Financeiro</p><h3 className={`text-2xl font-bold ${textColor}`}>{formatarMoeda(kpis.custo_absenteismo)}</h3></div></div>
+                </section>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                  <div className={`${cardBg} p-6 rounded-xl`}>
+                    <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Stethoscope className="w-4 h-4 text-emerald-500" /> Médicos Emissores (Top 7)</h3>
+                    <div className={modoImpressao ? "h-[300px]" : "h-64"}>
+                      {kpis.rankingMedicos.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={kpis.rankingMedicos} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
+                            <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
+                            <YAxis type="category" dataKey="nome" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={140} />
+                            <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
+                            <Bar isAnimationActive={!modoImpressao} dataKey="quantidade" name="Atestados" fill="#10B981" radius={[0, 4, 4, 0]} barSize={16}>
+                              <LabelList dataKey="quantidade" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (<div className="flex h-full items-center justify-center text-slate-500 text-sm italic">Sem dados de médicos.</div>)}
+                    </div>
+                  </div>
+                  <div className={`${cardBg} p-6 rounded-xl`}>
+                    <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Activity className="w-4 h-4 text-rose-500" /> CIDs Mais Frequentes (Top 10)</h3>
+                    <div className={modoImpressao ? "h-[300px]" : "h-64"}>
+                      {kpis.rankingCids.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={kpis.rankingCids} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
+                            <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
+                            <YAxis type="category" dataKey="nome" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={220} />
+                            <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
+                            <Bar isAnimationActive={!modoImpressao} dataKey="quantidade" name="Ocorrências" fill="#F43F5E" radius={[0, 4, 4, 0]} barSize={16}>
+                              <LabelList dataKey="quantidade" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (<div className="flex h-full items-center justify-center text-slate-500 text-sm italic">Sem dados de CIDs.</div>)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* TELA DE TOP 5 LATERAL SOMENTE APARECE FORA DA IMPRESSÃO */}
+              {!modoImpressao && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                  <div className={`${cardBg} p-6 rounded-xl flex flex-col`}>
+                    <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><TrendingDown className="w-4 h-4 text-rose-500" /> Ofensores de Faltas (Top 5)</h3>
+                    <div className="space-y-3 flex-1 pr-2 overflow-y-auto max-h-64 custom-scrollbar">
+                      {kpis.rankingFaltas?.slice(0, 5).map((pessoa: any, idx: number) => (
+                        <div key={idx} className={`flex justify-between items-center ${itemBg} p-3 rounded-lg border`}>
+                          <div className="flex items-center gap-3">
+                            <span className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-800 text-xs font-bold text-slate-400">{idx + 1}º</span>
+                            <span className="text-sm font-medium text-white cursor-pointer hover:text-blue-400 hover:underline transition-all" onClick={() => setModal360(pessoa.nome)}>{pessoa.nome}</span>
+                          </div>
+                          <span className="text-rose-400 bg-rose-400/10 text-xs font-bold px-2 py-1 rounded-md">{pessoa.faltas} dias</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className={`${cardBg} p-6 rounded-xl flex flex-col`}>
+                    <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Stethoscope className="w-4 h-4 text-emerald-500" /> Volume de Atestados (Top 5)</h3>
+                    <div className="space-y-3 flex-1 pr-2 overflow-y-auto max-h-64 custom-scrollbar">
+                      {kpis.rankingAtestados?.slice(0, 5).map((pessoa: any, idx: number) => (
+                        <div key={idx} className={`flex justify-between items-center ${itemBg} p-3 rounded-lg border`}>
+                          <div className="flex items-center gap-3">
+                            <span className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-800 text-xs font-bold text-slate-400">{idx + 1}º</span>
+                            <span className="text-sm font-medium text-white cursor-pointer hover:text-blue-400 hover:underline transition-all" onClick={() => setModal360(pessoa.nome)}>{pessoa.nome}</span>
+                          </div>
+                          <span className="text-emerald-400 bg-emerald-400/10 text-xs font-bold px-2 py-1 rounded-md">{pessoa.atestados} atestados</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
-
-              <section className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-                <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-amber-500/10 text-amber-500 rounded-lg"><Stethoscope className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Atestados</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.atestados}</h3></div></div>
-                <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-orange-500/10 text-orange-500 rounded-lg"><AlertOctagon className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Advertências</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.advertencias}</h3></div></div>
-                <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-rose-500/10 text-rose-500 rounded-lg"><Clock className="w-6 h-6" /></div><div className="flex-1"><p className={`text-xs ${textMuted} font-bold uppercase mb-1`}>Frequência</p><div className="flex items-center gap-6"><div><span className={`text-2xl font-bold ${textColor}`}>{kpis.faltas}</span><span className={`text-[10px] ${textMuted} ml-1 font-bold uppercase`}>Faltas</span></div><div className={`w-px h-8 ${modoImpressao ? 'bg-slate-200' : 'bg-white/10'}`}></div><div><span className={`text-2xl font-bold ${textColor}`}>{kpis.atrasos}</span><span className={`text-[10px] ${textMuted} ml-1 font-bold uppercase`}>Atrasos</span></div></div></div></div>
-                <div className={`${cardBg} border-red-200 p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-red-500/10 text-red-500 rounded-lg z-10"><DollarSign className="w-6 h-6" /></div><div className="z-10"><p className="text-xs text-red-500 font-bold uppercase mb-1">Impacto Financeiro</p><h3 className={`text-2xl font-bold ${textColor}`}>{formatarMoeda(kpis.custo_absenteismo)}</h3></div></div>
-              </section>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-                <div className={`${cardBg} p-6 rounded-xl`}>
-                  <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Stethoscope className="w-4 h-4 text-emerald-500" /> Médicos Emissores (Top 7)</h3>
-                  <div className={modoImpressao ? "h-[300px]" : "h-64"}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={kpis.rankingMedicos} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
-                        <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
-                        <YAxis type="category" dataKey="nome" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={140} />
-                        <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
-                        <Bar isAnimationActive={!modoImpressao} dataKey="quantidade" name="Atestados" fill="#10B981" radius={[0, 4, 4, 0]} barSize={16}>
-                          <LabelList dataKey="quantidade" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-                <div className={`${cardBg} p-6 rounded-xl`}>
-                  <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Activity className="w-4 h-4 text-rose-500" /> CIDs Mais Frequentes (Top 10)</h3>
-                  <div className={modoImpressao ? "h-[300px]" : "h-64"}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={kpis.rankingCids} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
-                        <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
-                        <YAxis type="category" dataKey="nome" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={220} />
-                        <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
-                        <Bar isAnimationActive={!modoImpressao} dataKey="quantidade" name="Ocorrências" fill="#F43F5E" radius={[0, 4, 4, 0]} barSize={16}>
-                          <LabelList dataKey="quantidade" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-                <div className={`${cardBg} p-6 rounded-xl flex flex-col`}>
-                  <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><TrendingDown className="w-4 h-4 text-rose-500" /> Ofensores de Faltas (Top 5)</h3>
-                  <div className={`space-y-3 flex-1 pr-2 ${modoImpressao ? 'overflow-hidden max-h-[340px]' : 'overflow-y-auto max-h-64 custom-scrollbar'}`}>
-                    {kpis.rankingFaltas?.length > 0 ? (
-                      kpis.rankingFaltas.map((pessoa: any, idx: number) => (
-                        <div key={idx} className={`flex justify-between items-center ${itemBg} p-3 rounded-lg border`}>
-                          <div className="flex items-center gap-3">
-                            <span className={`w-6 h-6 flex items-center justify-center rounded-full ${modoImpressao ? 'bg-slate-200' : 'bg-slate-800'} text-xs font-bold ${textMuted}`}>{idx + 1}º</span>
-                            <span className={`text-sm font-medium ${textColor} ${!modoImpressao ? 'cursor-pointer hover:text-blue-400 hover:underline transition-all' : ''}`} onClick={() => !modoImpressao && setModal360(pessoa.nome)}>{pessoa.nome}</span>
-                          </div>
-                          <span className={`${modoImpressao ? 'text-rose-600 bg-rose-100' : 'text-rose-400 bg-rose-400/10'} text-xs font-bold px-2 py-1 rounded-md`}>{pessoa.faltas} dias</span>
-                        </div>
-                      ))
-                    ) : (<p className={`text-sm ${textMuted} italic p-3 ${modoImpressao ? 'bg-slate-50' : 'bg-[#232936]/50'} rounded-lg border border-dashed text-center mt-4`}>Nenhuma falta registrada.</p>)}
-                  </div>
-                </div>
-                <div className={`${cardBg} p-6 rounded-xl flex flex-col`}>
-                  <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Stethoscope className="w-4 h-4 text-emerald-500" /> Volume de Atestados (Top 5)</h3>
-                  <div className={`space-y-3 flex-1 pr-2 ${modoImpressao ? 'overflow-hidden max-h-[340px]' : 'overflow-y-auto max-h-64 custom-scrollbar'}`}>
-                    {kpis.rankingAtestados?.length > 0 ? (
-                      kpis.rankingAtestados.map((pessoa: any, idx: number) => (
-                        <div key={idx} className={`flex justify-between items-center ${itemBg} p-3 rounded-lg border`}>
-                          <div className="flex items-center gap-3">
-                            <span className={`w-6 h-6 flex items-center justify-center rounded-full ${modoImpressao ? 'bg-slate-200' : 'bg-slate-800'} text-xs font-bold ${textMuted}`}>{idx + 1}º</span>
-                            <span className={`text-sm font-medium ${textColor} ${!modoImpressao ? 'cursor-pointer hover:text-blue-400 hover:underline transition-all' : ''}`} onClick={() => !modoImpressao && setModal360(pessoa.nome)}>{pessoa.nome}</span>
-                          </div>
-                          <span className={`${modoImpressao ? 'text-emerald-700 bg-emerald-100' : 'text-emerald-400 bg-emerald-400/10'} text-xs font-bold px-2 py-1 rounded-md`}>{pessoa.atestados} atestados</span>
-                        </div>
-                      ))
-                    ) : (<p className={`text-sm ${textMuted} italic p-3 ${modoImpressao ? 'bg-slate-50' : 'bg-[#232936]/50'} rounded-lg border border-dashed text-center mt-4`}>Nenhum atestado registrado.</p>)}
-                  </div>
-                </div>
-              </div>
-            </div>
+            </>
           )}
 
-          {(menuAtivo === "financeiro" || modoImpressao) && (
-            <div id="print-financeiro" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
-              
-              {modoImpressao && (
-                <div className="mb-6 border-b pb-4 border-slate-200">
-                  <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>3. Indicadores Financeiros e Passivos {setorSelecionado !== "Todos" && <span className="text-red-500">- {setorSelecionado}</span>}</h2>
-                  <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
-                </div>
-              )}
-
-              <section className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4 border-red-500/30`}>
-                  <div className="p-3 bg-red-500/10 text-red-500 rounded-lg"><DollarSign className="w-6 h-6" /></div>
-                  <div><p className={`text-xs ${textMuted} font-bold uppercase mb-1`}>Custo de Absenteísmo</p><h3 className={`text-2xl font-bold text-red-400`}>{formatarMoeda(kpis.custo_absenteismo)}</h3></div>
-                </div>
-                <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}>
-                  <div className="p-3 bg-amber-500/10 text-amber-500 rounded-lg"><Clock className="w-6 h-6" /></div>
-                  <div><p className={`text-xs ${textMuted} font-bold uppercase mb-1`}>Horas Extras Realizadas</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.totalHorasExtras} <span className="text-sm text-slate-500">horas</span></h3></div>
-                </div>
-                <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}>
-                  <div className="p-3 bg-rose-500/10 text-rose-500 rounded-lg"><CalendarRange className="w-6 h-6" /></div>
-                  <div><p className={`text-xs ${textMuted} font-bold uppercase mb-1`}>Férias em Risco de Dobra</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.alertasFerias?.length || 0} <span className="text-sm text-slate-500">colaboradores</span></h3></div>
-                </div>
-              </section>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-                <div className={`${cardBg} p-6 rounded-xl flex flex-col`}>
-                  <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Flame className="w-4 h-4 text-rose-500" /> Alerta de Passivo (Férias Vencendo)</h3>
-                  <div className={`space-y-3 flex-1 pr-2 ${modoImpressao ? 'overflow-hidden max-h-[340px]' : 'overflow-y-auto max-h-[320px] custom-scrollbar'}`}>
-                    {kpis.alertasFerias?.length > 0 ? (
-                      kpis.alertasFerias.map((pessoa: any, idx: number) => {
-                        const critico = pessoa.dias_restantes <= 30; 
-                        return (
-                          <div key={idx} className={`flex justify-between items-center p-3 rounded-lg border ${critico ? (modoImpressao ? 'bg-red-50 border-red-200' : 'bg-red-500/10 border-red-500/30') : itemBg}`}>
-                            <div className="flex flex-col">
-                              <span className={`text-sm font-medium ${critico ? 'text-red-400' : textColor} ${!modoImpressao ? 'cursor-pointer hover:text-blue-400 hover:underline transition-all' : ''}`} onClick={() => !modoImpressao && setModal360(pessoa.nome)}>{pessoa.nome}</span>
-                              <span className="text-xs text-slate-500 mt-0.5">{pessoa.setor}</span>
-                            </div>
-                            <span className={`${critico ? 'text-red-500 font-bold flex items-center gap-1' : 'text-orange-400 font-medium'} text-xs px-2 py-1 bg-black/20 rounded-md`}>{critico && <AlertTriangle className="w-3 h-3" />}Dobra em {pessoa.dias_restantes} dias</span>
-                          </div>
-                        )
-                      })
-                    ) : (<p className={`text-sm ${textMuted} italic p-4 ${modoImpressao ? 'bg-slate-50' : 'bg-[#232936]/50'} rounded-lg border border-dashed text-center mt-4`}>Nenhum colaborador com risco de férias em dobro nos próximos 4 meses.</p>)}
+          {menuAtivo === "financeiro" && !modoImpressao && (
+            <>
+              {/* ÁREA CAPTURADA PELO PDF */}
+              <div id="print-financeiro" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
+                {modoImpressao && (
+                  <div className="mb-6 border-b pb-4 border-slate-200">
+                    <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>3. Indicadores Financeiros e Passivos {setorSelecionado !== "Todos" && <span className="text-red-500">- {setorSelecionado}</span>}</h2>
+                    <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
                   </div>
-                </div>
+                )}
 
-                <div className={`${cardBg} p-6 rounded-xl`}>
-                  <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Wallet className="w-4 h-4 text-amber-500" /> Volume de Horas Extras (Por Setor)</h3>
-                  <div className={modoImpressao ? "h-[300px]" : "h-[320px]"}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={kpis.graficoHorasExtras} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
-                        <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
-                        <YAxis type="category" dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={100} />
-                        <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
-                        <Bar isAnimationActive={!modoImpressao} dataKey="horas" name="Horas Extras" fill="#F59E0B" radius={[0, 4, 4, 0]} barSize={20}>
-                           <LabelList dataKey="horas" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
+                <section className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4 border-red-500/30`}>
+                    <div className="p-3 bg-red-500/10 text-red-500 rounded-lg"><DollarSign className="w-6 h-6" /></div>
+                    <div><p className={`text-xs ${textMuted} font-bold uppercase mb-1`}>Custo de Absenteísmo</p><h3 className={`text-2xl font-bold text-red-400`}>{formatarMoeda(kpis.custo_absenteismo)}</h3></div>
+                  </div>
+                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}>
+                    <div className="p-3 bg-amber-500/10 text-amber-500 rounded-lg"><Clock className="w-6 h-6" /></div>
+                    <div><p className={`text-xs ${textMuted} font-bold uppercase mb-1`}>Horas Extras Realizadas</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.totalHorasExtras} <span className="text-sm text-slate-500">horas</span></h3></div>
+                  </div>
+                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}>
+                    <div className="p-3 bg-rose-500/10 text-rose-500 rounded-lg"><CalendarRange className="w-6 h-6" /></div>
+                    <div><p className={`text-xs ${textMuted} font-bold uppercase mb-1`}>Férias em Risco de Dobra</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.alertasFerias?.length || 0} <span className="text-sm text-slate-500">colaboradores</span></h3></div>
+                  </div>
+                </section>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                  {/* TELA DE FÉRIAS SOMENTE APARECE FORA DA IMPRESSÃO */}
+                  {!modoImpressao && (
+                    <div className={`${cardBg} p-6 rounded-xl flex flex-col`}>
+                      <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Flame className="w-4 h-4 text-rose-500" /> Alerta de Passivo (Férias Vencendo)</h3>
+                      <div className="space-y-3 flex-1 pr-2 overflow-y-auto max-h-[320px] custom-scrollbar">
+                        {kpis.alertasFerias?.length > 0 ? (
+                          kpis.alertasFerias.map((pessoa: any, idx: number) => {
+                            const critico = pessoa.dias_restantes <= 30; 
+                            return (
+                              <div key={idx} className={`flex justify-between items-center p-3 rounded-lg border ${critico ? 'bg-red-500/10 border-red-500/30' : itemBg}`}>
+                                <div className="flex flex-col">
+                                  <span className={`text-sm font-medium ${critico ? 'text-red-400' : textColor} cursor-pointer hover:text-blue-400 hover:underline transition-all`} onClick={() => setModal360(pessoa.nome)}>{pessoa.nome}</span>
+                                  <span className="text-xs text-slate-500 mt-0.5">{pessoa.setor}</span>
+                                </div>
+                                <span className={`${critico ? 'text-red-500 font-bold flex items-center gap-1' : 'text-orange-400 font-medium'} text-xs px-2 py-1 bg-black/20 rounded-md`}>{critico && <AlertTriangle className="w-3 h-3" />}Dobra em {pessoa.dias_restantes} dias</span>
+                              </div>
+                            )
+                          })
+                        ) : (<p className="text-sm text-slate-400 italic p-4 bg-[#232936]/50 rounded-lg border border-dashed text-center mt-4">Nenhum colaborador com risco de férias em dobro nos próximos 4 meses.</p>)}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className={`${cardBg} p-6 rounded-xl ${modoImpressao ? 'col-span-2' : ''}`}>
+                    <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Wallet className="w-4 h-4 text-amber-500" /> Volume de Horas Extras (Por Setor)</h3>
+                    <div className={modoImpressao ? "h-[300px]" : "h-[320px]"}>
+                      {kpis.graficoHorasExtras.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={kpis.graficoHorasExtras} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
+                            <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
+                            <YAxis type="category" dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={100} />
+                            <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
+                            <Bar isAnimationActive={!modoImpressao} dataKey="horas" name="Horas Extras" fill="#F59E0B" radius={[0, 4, 4, 0]} barSize={20}>
+                              <LabelList dataKey="horas" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (<div className="flex h-full items-center justify-center text-slate-500 text-sm italic">Nenhuma hora extra registrada.</div>)}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            </>
           )}
 
           {(menuAtivo === "armarios" && !modoImpressao) && (
@@ -753,16 +740,9 @@ export function App() {
             </div>
           )}
 
-          {(menuAtivo === "desempenho" || modoImpressao) && (
-            <div id="print-desempenho" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
-              
-              {modoImpressao && (
-                <div className="mb-6 border-b pb-4 border-slate-200">
-                  <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>4. Performance e Produtividade {setorSelecionado !== "Todos" && <span className="text-indigo-500">- {setorSelecionado}</span>}</h2>
-                  <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {anoSelecionado}</p>
-                </div>
-              )}
-
+          {/* DESEMPENHO SÓ APARECE FORA DA IMPRESSÃO */}
+          {(menuAtivo === "desempenho" && !modoImpressao) && (
+            <div className="p-2 rounded-lg">
               <section className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                 <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-indigo-500/10 text-indigo-500 rounded-lg"><Star className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Avaliações Realizadas</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.avaliacoes}</h3></div></div>
               </section>
@@ -787,22 +767,96 @@ export function App() {
           )}
 
           {/* ========================================================= */}
-          {/* NOVA ABA: PROCESSAMENTO DE PONTO (Motor Funcional) */}
+          {/* PÁGINAS EXCLUSIVAS DE TOP 10 (SÓ APARECEM NA IMPRESSÃO) */}
           {/* ========================================================= */}
+          {/* ========================================================= */}
+          {/* PÁGINAS DE RANKING DINÂMICO (SÓ APARECEM NA IMPRESSÃO) */}
+          {/* ========================================================= */}
+          {modoImpressao && (
+            <>
+              {/* RANKING FALTAS */}
+              <div id="print-ranking-faltas" className="p-8 rounded-xl bg-white border border-slate-200 shadow-sm mt-8">
+                <div className="mb-8 border-b pb-4 border-slate-200">
+                  <h2 className="text-2xl font-bold text-slate-800 tracking-tight uppercase">
+                    Top {setorSelecionado === 'Todos' ? '5' : '10'} Ofensores de Faltas {setorSelecionado !== 'Todos' && <span className="text-rose-500">- {setorSelecionado}</span>}
+                  </h2>
+                  <p className="text-slate-500 text-sm">Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
+                </div>
+                <div className="space-y-4">
+                  {kpis.rankingFaltas?.slice(0, setorSelecionado === 'Todos' ? 5 : 10).map((pessoa: any, idx: number) => (
+                    <div key={idx} className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-200">
+                      <div className="flex items-center gap-4">
+                        <span className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-200 text-sm font-bold text-slate-600">{idx + 1}º</span>
+                        <span className="text-lg font-bold text-slate-800">{pessoa.nome}</span>
+                      </div>
+                      <span className="text-rose-700 bg-rose-100 text-sm font-bold px-4 py-2 rounded-lg">{pessoa.faltas} dias ausentes</span>
+                    </div>
+                  ))}
+                  {(!kpis.rankingFaltas || kpis.rankingFaltas.length === 0) && (
+                    <p className="text-slate-500 text-center py-8">Nenhuma falta registrada neste período.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* RANKING ATESTADOS */}
+              <div id="print-ranking-atestados" className="p-8 rounded-xl bg-white border border-slate-200 shadow-sm mt-8">
+                <div className="mb-8 border-b pb-4 border-slate-200">
+                  <h2 className="text-2xl font-bold text-slate-800 tracking-tight uppercase">
+                    Top {setorSelecionado === 'Todos' ? '5' : '10'} Volume de Atestados {setorSelecionado !== 'Todos' && <span className="text-emerald-500">- {setorSelecionado}</span>}
+                  </h2>
+                  <p className="text-slate-500 text-sm">Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
+                </div>
+                <div className="space-y-4">
+                  {kpis.rankingAtestados?.slice(0, setorSelecionado === 'Todos' ? 5 : 10).map((pessoa: any, idx: number) => (
+                    <div key={idx} className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-200">
+                      <div className="flex items-center gap-4">
+                        <span className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-200 text-sm font-bold text-slate-600">{idx + 1}º</span>
+                        <span className="text-lg font-bold text-slate-800">{pessoa.nome}</span>
+                      </div>
+                      <span className="text-emerald-800 bg-emerald-100 text-sm font-bold px-4 py-2 rounded-lg">{pessoa.atestados} atestados</span>
+                    </div>
+                  ))}
+                  {(!kpis.rankingAtestados || kpis.rankingAtestados.length === 0) && (
+                    <p className="text-slate-500 text-center py-8">Nenhum atestado registrado neste período.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* RANKING ADVERTÊNCIAS */}
+              <div id="print-ranking-advertencias" className="p-8 rounded-xl bg-white border border-slate-200 shadow-sm mt-8">
+                <div className="mb-8 border-b pb-4 border-slate-200">
+                  <h2 className="text-2xl font-bold text-slate-800 tracking-tight uppercase">
+                    Top {setorSelecionado === 'Todos' ? '5' : '10'} Advertências {setorSelecionado !== 'Todos' && <span className="text-orange-500">- {setorSelecionado}</span>}
+                  </h2>
+                  <p className="text-slate-500 text-sm">Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
+                </div>
+                <div className="space-y-4">
+                  {kpis.rankingAdvertencias?.slice(0, setorSelecionado === 'Todos' ? 5 : 10).map((pessoa: any, idx: number) => (
+                    <div key={idx} className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-200">
+                      <div className="flex items-center gap-4">
+                        <span className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-200 text-sm font-bold text-slate-600">{idx + 1}º</span>
+                        <span className="text-lg font-bold text-slate-800">{pessoa.nome}</span>
+                      </div>
+                      <span className="text-orange-800 bg-orange-100 text-sm font-bold px-4 py-2 rounded-lg">{pessoa.advertencias} ocorrências</span>
+                    </div>
+                  ))}
+                  {(!kpis.rankingAdvertencias || kpis.rankingAdvertencias.length === 0) && (
+                    <p className="text-slate-500 text-center py-8">Nenhuma advertência registrada neste período.</p>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ABA DA FOLHA DE PONTO NORMAL */}
           {(menuAtivo === "folha" && !modoImpressao) && (
             <div className="p-2 rounded-lg fade-in">
               <div className={`${cardBg} p-8 rounded-xl border border-white/5`}>
-                
                 {resultadoPonto.length === 0 && !processandoPonto && (
                   <div className="text-center flex flex-col items-center justify-center py-12">
-                    <div className="w-16 h-16 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mb-6">
-                      <UploadCloud className="w-8 h-8" />
-                    </div>
+                    <div className="w-16 h-16 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mb-6"><UploadCloud className="w-8 h-8" /></div>
                     <h2 className={`text-2xl font-bold ${textColor} mb-2`}>Motor de Cartão de Ponto</h2>
-                    <p className={`${textMuted} text-sm max-w-md mx-auto mb-8`}>
-                      Arraste o arquivo <b>sap_009.xls</b>. O sistema cruzará os nomes com o Banco de Dados do Notion, puxará o <b>Salário Base</b> e calculará o desconto exato em R$.
-                    </p>
-                    
+                    <p className={`${textMuted} text-sm max-w-md mx-auto mb-8`}>Arraste o arquivo <b>sap_009.xls</b>. O sistema cruzará os nomes com o Banco de Dados do Notion, puxará o <b>Salário Base</b> e calculará o desconto exato em R$.</p>
                     <div className="relative w-full max-w-2xl border-2 border-dashed border-slate-600 rounded-xl p-10 hover:border-emerald-500 hover:bg-emerald-500/5 transition-all cursor-pointer group">
                       <input type="file" accept=".xls,.xlsx,.csv" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                       <UploadCloud className="w-10 h-10 text-slate-500 mx-auto mb-4 group-hover:text-emerald-500 transition-colors" />
@@ -812,15 +866,12 @@ export function App() {
                     {erroPonto && <div className="mt-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm font-medium">{erroPonto}</div>}
                   </div>
                 )}
-
                 {processandoPonto && (
                   <div className="text-center py-20 flex flex-col items-center">
                     <Loader2 className="w-12 h-12 text-emerald-500 animate-spin mb-4" />
                     <p className="text-white font-bold text-lg">Lendo milhares de linhas e calculando salários...</p>
-                    <p className="text-slate-400 text-sm mt-2">A Mágica da Engenharia de Dados acontecendo.</p>
                   </div>
                 )}
-
                 {resultadoPonto.length > 0 && !processandoPonto && (
                   <div>
                     <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-6">
@@ -828,7 +879,6 @@ export function App() {
                         <h2 className="text-2xl font-bold text-white flex items-center gap-3"><CheckCircle2 className="w-6 h-6 text-emerald-500"/> Sucesso! Relatório Processado</h2>
                         <p className="text-slate-400 text-sm mt-1">{resultadoPonto.length} funcionários calculados para {NOME_MESES[mesSelecionado-1]}/{anoSelecionado}.</p>
                       </div>
-                      
                       <div className="flex items-center gap-3">
                         {mensagemFolha && <span className="text-sm font-medium animate-pulse">{mensagemFolha}</span>}
                         <button onClick={() => setResultadoPonto([])} disabled={salvandoFolha} className="px-4 py-2 bg-[#232936] hover:bg-[#2A3142] text-white text-sm font-medium rounded-lg transition-colors border border-white/5">Cancelar / Limpar</button>
@@ -838,7 +888,6 @@ export function App() {
                         </button>
                       </div>
                     </div>
-
                     <div className="overflow-x-auto rounded-xl border border-white/10">
                       <table className="w-full text-left border-collapse">
                         <thead>
@@ -847,16 +896,14 @@ export function App() {
                             <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Setor</th>
                             <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Salário Base</th>
                             <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Tempo Descontado</th>
-                            <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Faltas (Dias)</th>
+                            <th className="p-4 text-xs font-bold text-amber-500 uppercase tracking-wider border-b border-white/10">Faltas (Dias)</th>
                             <th className="p-4 text-xs font-bold text-rose-500 uppercase tracking-wider border-b border-white/10">Impacto (R$)</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/5 bg-[#1A1F2B]">
                           {resultadoPonto.map((row, idx) => (
                             <tr key={idx} className="hover:bg-white/5 transition-colors">
-                              <td className="p-4">
-                                <span className={`text-sm font-medium ${row.salario_base === 0 ? 'text-orange-400' : 'text-white'}`}>{row.nome}</span>
-                              </td>
+                              <td className="p-4"><span className={`text-sm font-medium ${row.salario_base === 0 ? 'text-orange-400' : 'text-white'}`}>{row.nome}</span></td>
                               <td className="p-4 text-sm text-slate-300">{row.setor}</td>
                               <td className="p-4 text-sm text-slate-400">{formatarMoeda(row.salario_base)}</td>
                               <td className="p-4"><span className="px-2.5 py-1 bg-[#232936] text-slate-300 rounded text-xs font-bold font-mono border border-white/5">{row.horas_desconto}</span></td>
@@ -869,7 +916,6 @@ export function App() {
                     </div>
                   </div>
                 )}
-
               </div>
             </div>
           )}

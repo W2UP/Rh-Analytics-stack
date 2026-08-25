@@ -37,49 +37,19 @@ DB_ARMARIOS = "3872051d7a6b80c2b69ceb5e4db649cb"
 
 DB_PATH = "banco_rh.db"
 
-# ==========================================
-# FUNÇÃO DE PADRONIZAÇÃO DE SETORES
-# ==========================================
 def formatar_setor(setor_nome):
-    if not setor_nome or setor_nome == "Outros / Não Informado" or setor_nome == "-":
-        return "Outros"
+    if not setor_nome or setor_nome == "Outros / Não Informado" or setor_nome == "-": return "Outros"
     s = str(setor_nome).strip().title()
     replaces = {"Rh": "RH", "Dho": "DHO", "Ti": "TI", "Pcp": "PCP", "Uchoa": "Uchoa"}
     return replaces.get(s, s)
 
-# ==========================================
-# 1. MOTOR DO BANCO DE DADOS LOCAL
-# ==========================================
 def iniciar_banco_dados():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS notion_cache (
-            tabela_nome TEXT PRIMARY KEY,
-            dados_json TEXT,
-            ultima_atualizacao TIMESTAMP
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS historico_folha (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mes INTEGER,
-            ano INTEGER,
-            nome_funcionario TEXT,
-            setor TEXT,
-            salario_base REAL,
-            horas_desconto TEXT,
-            valor_desconto REAL,
-            data_lancamento TIMESTAMP,
-            faltas_dias REAL DEFAULT 0.0
-        )
-    ''')
-    
-    try:
-        cursor.execute("ALTER TABLE historico_folha ADD COLUMN faltas_dias REAL DEFAULT 0.0")
-    except:
-        pass
-        
+    cursor.execute('''CREATE TABLE IF NOT EXISTS notion_cache (tabela_nome TEXT PRIMARY KEY, dados_json TEXT, ultima_atualizacao TIMESTAMP)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS historico_folha (id INTEGER PRIMARY KEY AUTOINCREMENT, mes INTEGER, ano INTEGER, nome_funcionario TEXT, setor TEXT, salario_base REAL, horas_desconto TEXT, valor_desconto REAL, data_lancamento TIMESTAMP, faltas_dias REAL DEFAULT 0.0)''')
+    try: cursor.execute("ALTER TABLE historico_folha ADD COLUMN faltas_dias REAL DEFAULT 0.0")
+    except: pass
     conn.commit()
     conn.close()
 
@@ -90,13 +60,7 @@ def salvar_no_banco(tabela_nome, dados_lista):
     cursor = conn.cursor()
     json_str = json.dumps(dados_lista)
     agora = datetime.now()
-    cursor.execute('''
-        INSERT INTO notion_cache (tabela_nome, dados_json, ultima_atualizacao)
-        VALUES (?, ?, ?)
-        ON CONFLICT(tabela_nome) DO UPDATE SET 
-        dados_json = excluded.dados_json,
-        ultima_atualizacao = excluded.ultima_atualizacao
-    ''', (tabela_nome, json_str, agora))
+    cursor.execute('''INSERT INTO notion_cache (tabela_nome, dados_json, ultima_atualizacao) VALUES (?, ?, ?) ON CONFLICT(tabela_nome) DO UPDATE SET dados_json = excluded.dados_json, ultima_atualizacao = excluded.ultima_atualizacao''', (tabela_nome, json_str, agora))
     conn.commit()
     conn.close()
 
@@ -109,9 +73,6 @@ def ler_do_banco(tabela_nome):
     if resultado: return json.loads(resultado[0])
     return None
 
-# ==========================================
-# 2. UTILS E INTEGRAÇÃO NOTION
-# ==========================================
 class LoginData(BaseModel):
     usuario: str
     senha: str
@@ -121,8 +82,7 @@ USUARIOS_PERMITIDOS = {"diretoria": "@senha123", "gerencia": "@senha456", "rh": 
 @app.post("/api/login")
 def validar_login(dados: LoginData):
     usuario_digitado = dados.usuario.lower()
-    if usuario_digitado in USUARIOS_PERMITIDOS and USUARIOS_PERMITIDOS[usuario_digitado] == dados.senha:
-        return {"sucesso": True, "usuario": usuario_digitado}
+    if usuario_digitado in USUARIOS_PERMITIDOS and USUARIOS_PERMITIDOS[usuario_digitado] == dados.senha: return {"sucesso": True, "usuario": usuario_digitado}
     return {"sucesso": False, "mensagem": "Usuário ou senha incorretos."}
 
 def buscar_itens_notion(database_id, payload_filtro=None):
@@ -131,7 +91,6 @@ def buscar_itens_notion(database_id, payload_filtro=None):
     url = f"https://api.notion.com/v1/databases/{database_id}/query"
     itens, tem_mais_paginas, next_cursor = [], True, None
     if payload_filtro is None: payload_filtro = {}
-    
     while tem_mais_paginas:
         if next_cursor: payload_filtro["start_cursor"] = next_cursor
         try:
@@ -179,7 +138,6 @@ def sincronizar_tudo():
         f5 = executor.submit(buscar_itens_notion, DB_FREQUENCIA)
         f6 = executor.submit(buscar_itens_notion, DB_DESEMPENHO)
         f7 = executor.submit(buscar_itens_notion, DB_ARMARIOS)
-
         salvar_no_banco("colaboradores", f1.result())
         salvar_no_banco("desligamentos", f2.result())
         salvar_no_banco("atestados", f3.result())
@@ -193,18 +151,12 @@ def endpoint_sincronizar(background_tasks: BackgroundTasks):
     background_tasks.add_task(sincronizar_tudo)
     return {"sucesso": True, "mensagem": "Sincronização iniciada."}
 
-# ==========================================
-# 3. ROTAS DA FOLHA E DO DASHBOARD
-# ==========================================
 @app.post("/api/processar_ponto")
 async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
     try:
         conteudo = await arquivo.read()
-        try:
-            df = pd.read_excel(io.BytesIO(conteudo), header=None, engine='xlrd')
-        except Exception as e:
-            return {"sucesso": False, "erro": f"Erro Técnico do Python: {str(e)}"}
-
+        try: df = pd.read_excel(io.BytesIO(conteudo), header=None, engine='xlrd')
+        except Exception as e: return {"sucesso": False, "erro": f"Erro Técnico do Python: {str(e)}"}
         colabs = ler_do_banco("colaboradores") or []
         dict_salarios = {}
         for c in colabs:
@@ -216,12 +168,10 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
                     if v.get("type") == "title" and v.get("title"):
                         nome = v["title"][0]["plain_text"]
                         break
-            
             sal_str = extrair_texto(props, "Salário (R$)")
             salario = 0.0
             try: salario = float(sal_str)
             except: pass
-            
             setor = extrair_texto(props, "Setor")
             nome_norm = normalizar_nome(nome)
             dict_salarios[nome_norm] = {"salario": salario, "setor": setor, "nome_original": nome}
@@ -233,7 +183,6 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
         
         for i, row in df.iterrows():
             row_str = ' | '.join([str(x) if pd.notna(x) else "" for x in row.values])
-            
             if 'Funcionário' in row_str and ':' in row_str:
                 parts = row_str.split('Funcionário')[1].split(':')
                 if len(parts) > 1:
@@ -243,19 +192,14 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
                         nome_atual_sap = normalizar_nome(emp_parts[1])
                         setor_atual_sap = None 
                         faltas_dias_atual = 0.0
-            
             if 'Setor' in row_str and ':' in row_str:
                 parts = row_str.split(':')
                 if len(parts) > 1:
                     sector_name_parts = parts[1].split('|')
                     found = [s.strip() for s in sector_name_parts if s.strip() and not s.strip().isdigit()]
-                    if found:
-                        setor_atual_sap = formatar_setor(found[0])
-                        
-            # BLINDAGEM UCHOA NO PROCESSAMENTO DA FOLHA
+                    if found: setor_atual_sap = formatar_setor(found[0])
             if setor_atual_sap and ("UCHOA" in setor_atual_sap.upper() or "UCHÔA" in setor_atual_sap.upper()):
-                if 'Tot Descontado' in row_str:
-                    nome_atual_sap = None 
+                if 'Tot Descontado' in row_str: nome_atual_sap = None 
                 continue 
 
             if nome_atual_sap and 'FALTA' in row_str:
@@ -263,15 +207,10 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
                 for j in [4, 5, 6, 7]: 
                     if j < len(row.values) and pd.notna(row.values[j]) and str(row.values[j]).strip() != "":
                         vals.append(str(row.values[j]).strip().upper())
-                        
                 fc = sum(1 for v in vals if 'FALTA' in v)
-                
-                if fc == 4 or fc == 3:
-                    faltas_dias_atual += 1.0   
-                elif fc == 2:
-                    faltas_dias_atual += 0.5   
-                elif fc == 1:
-                    faltas_dias_atual += 0.0   
+                if fc == 4 or fc == 3: faltas_dias_atual += 1.0   
+                elif fc == 2: faltas_dias_atual += 0.5   
+                elif fc == 1: faltas_dias_atual += 0.0   
             
             if 'Tot Descontado' in row_str and nome_atual_sap:
                 time_val = None
@@ -279,20 +218,16 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
                     if pd.notna(cell) and isinstance(cell, str) and ':' in cell and len(cell.strip()) <= 6:
                         time_val = cell.strip()
                         break
-                
                 if time_val:
                     try:
                         info_func = dict_salarios.get(nome_atual_sap)
                         if info_func:
                             h, m = time_val.split(":")
                             horas_decimais = int(h) + (int(m) / 60.0)
-                            
                             salario = info_func["salario"]
                             if salario <= 0: salario = 2270.22 
-                            
                             valor_hora = salario / 220.0
                             desconto_rs = horas_decimais * valor_hora
-                            
                             resultados.append({
                                 "nome": info_func["nome_original"],
                                 "setor": formatar_setor(info_func.get("setor")),
@@ -315,8 +250,7 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
                     nome_atual_sap = None 
 
         return {"sucesso": True, "processados": len(resultados), "dados": resultados}
-    except Exception as e:
-        return {"sucesso": False, "erro": str(e)}
+    except Exception as e: return {"sucesso": False, "erro": str(e)}
 
 class DadosFolha(BaseModel):
     mes: int
@@ -329,24 +263,13 @@ def salvar_dados_folha(dados: DadosFolha):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         agora = datetime.now()
-        
         cursor.execute("DELETE FROM historico_folha WHERE mes = ? AND ano = ?", (dados.mes, dados.ano))
-        
         for lanc in dados.lancamentos:
-            cursor.execute('''
-                INSERT INTO historico_folha (mes, ano, nome_funcionario, setor, salario_base, horas_desconto, valor_desconto, data_lancamento, faltas_dias)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                dados.mes, dados.ano, 
-                lanc['nome'], lanc['setor'], lanc['salario_base'], 
-                lanc['horas_desconto'], lanc['valor_desconto'], agora, lanc.get('faltas_dias', 0.0)
-            ))
-            
+            cursor.execute('''INSERT INTO historico_folha (mes, ano, nome_funcionario, setor, salario_base, horas_desconto, valor_desconto, data_lancamento, faltas_dias) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', (dados.mes, dados.ano, lanc['nome'], lanc['setor'], lanc['salario_base'], lanc['horas_desconto'], lanc['valor_desconto'], agora, lanc.get('faltas_dias', 0.0)))
         conn.commit()
         conn.close()
         return {"sucesso": True, "mensagem": f"{len(dados.lancamentos)} lançamentos salvos com sucesso no Banco de Dados!"}
-    except Exception as e:
-        return {"sucesso": False, "erro": str(e)}
+    except Exception as e: return {"sucesso": False, "erro": str(e)}
 
 @app.get("/api/dashboard/kpis")
 def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
@@ -354,25 +277,14 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     mes_int = mes if mes else hoje.month
     ano_int = ano if ano else hoje.year
 
-    # ---------------------------------------------------------
-    # CALENDÁRIO 1: CIVIL (Admissões, Férias, Aniversários)
-    # ---------------------------------------------------------
     inicio_mes_civil = f"{ano_int}-{mes_int:02d}-01"
     ultimo_dia = calendar.monthrange(ano_int, mes_int)[1]
     fim_mes_civil = f"{ano_int}-{mes_int:02d}-{ultimo_dia}"
 
-    # ---------------------------------------------------------
-    # CALENDÁRIO 2: FISCAL/FOLHA (Faltas, Atestados, Advertências)
-    # ---------------------------------------------------------
-    if mes_int == 1:
-        mes_anterior = 12
-        ano_anterior = ano_int - 1
-    else:
-        mes_anterior = mes_int - 1
-        ano_anterior = ano_int
-
-    inicio_mes_fiscal = f"{ano_anterior}-{mes_anterior:02d}-25"
-    fim_mes_fiscal = f"{ano_int}-{mes_int:02d}-24"
+    if mes_int == 1: mes_anterior, ano_anterior = 12, ano_int - 1
+    else: mes_anterior, ano_anterior = mes_int - 1, ano_int
+    inicio_mes_fiscal = f"{ano_anterior}-{mes_anterior:02d}-26"
+    fim_mes_fiscal = f"{ano_int}-{mes_int:02d}-25"
 
     todos_colab = ler_do_banco("colaboradores") or []
     todos_deslig = ler_do_banco("desligamentos") or []
@@ -382,17 +294,22 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     avaliacoes_itens = ler_do_banco("desempenho") or []
     armarios_itens = ler_do_banco("armarios") or []
 
-    # Aplicação do Calendário Civil
     ativos_itens = [i for i in todos_colab if extrair_texto(i.get("properties", {}), "Status") == "Ativo"]
     admissoes_itens = [i for i in todos_colab if inicio_mes_civil <= extrair_texto(i.get("properties", {}), "Data de admissão")[:10] <= fim_mes_civil]
     
-    # Aplicação do Calendário Fiscal (DP)
+    avaliacoes_filtradas = []
+    for item in avaliacoes_itens:
+        props = item.get("properties", {})
+        dt_aval = extrair_texto(props, "Data da Avaliação")
+        if dt_aval == "Outros / Não Informado": dt_aval = extrair_texto(props, "Data")
+        if dt_aval != "Outros / Não Informado" and inicio_mes_civil <= dt_aval[:10] <= fim_mes_civil: avaliacoes_filtradas.append(item)
+    avaliacoes_itens = avaliacoes_filtradas
+    
     desligamentos_itens = [i for i in todos_deslig if inicio_mes_fiscal <= extrair_texto(i.get("properties", {}), "Data de Desligamento")[:10] <= fim_mes_fiscal]
     desligamentos_ano = [i for i in todos_deslig if extrair_texto(i.get("properties", {}), "Data de Desligamento")[:4] == str(ano_int)]
     atestados_itens = [i for i in todos_atestados if inicio_mes_fiscal <= extrair_texto(i.get("properties", {}), "Data de Entrega")[:10] <= fim_mes_fiscal]
     advertencias_itens = [i for i in todos_adv if inicio_mes_fiscal <= extrair_texto(i.get("properties", {}), "Data da Advertência")[:10] <= fim_mes_fiscal]
 
-    # Prepara lista de Setores (já esconde Uchoa e formata bonito)
     setores_unicos = set([formatar_setor(extrair_texto(i.get("properties", {}), "Setor")) for i in ativos_itens])
     if "Uchoa" in setores_unicos: setores_unicos.remove("Uchoa")
     lista_setores = sorted(list(setores_unicos))
@@ -410,7 +327,8 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     total_ativos = len(ativos_itens)
     dict_perfis = {}
     
-    def get_nome_correto(props):
+    # NOVA FUNÇÃO BLINDADA PARA NOME - CORTA O "MEDIC" E "ATESTADO"
+    def get_nome_correto(props, is_atestado=False):
         nome = "Outros / Não Informado"
         if "Funcionário" in props:
             prop = props["Funcionário"]
@@ -420,8 +338,19 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
                 arr = prop["rollup"].get("array", [])
                 if arr and arr[0].get("title"): nome = arr[0]["title"][0]["plain_text"]
                 elif arr and arr[0].get("rich_text"): nome = arr[0]["rich_text"][0]["plain_text"]
-        if nome == "Outros / Não Informado" and "Nome" in props:
-            nome = extrair_texto(props, "Nome")
+        
+        if nome == "Outros / Não Informado" and "Nome" in props: nome = extrair_texto(props, "Nome")
+        
+        # A Mágica do Título para Atestados Relacionais Vazios
+        if nome == "Outros / Não Informado" or not nome.strip():
+            for k, v in props.items():
+                if v.get("type") == "title" and v.get("title"):
+                    nome_bruto = v["title"][0]["plain_text"]
+                    if is_atestado and '-' in nome_bruto:
+                        nome = nome_bruto.split('-')[0].strip() # Corta tudo pós-hífen
+                    else:
+                        nome = nome_bruto
+                    break
         return nome
 
     def iniciar_perfil(nome):
@@ -442,25 +371,19 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
                 diff = hoje - data_admissao
                 anos, meses = diff.days // 365, (diff.days % 365) // 30
                 dict_perfis[nome]["tempo_casa"] = f"{anos} ano(s) e {meses} mês(es)" if anos > 0 else f"{meses} mês(es)"
-                
                 if diff.days >= 365:
                     dias_para_dobrar = (365 * 2) - diff.days
-                    if -365 < dias_para_dobrar <= 120: 
-                        alertas_ferias.append({"nome": nome, "dias_restantes": dias_para_dobrar, "setor": dict_perfis[nome]["setor"]})
-                
+                    if -365 < dias_para_dobrar <= 120: alertas_ferias.append({"nome": nome, "dias_restantes": dias_para_dobrar, "setor": dict_perfis[nome]["setor"]})
                 venc_45, venc_90 = data_admissao + timedelta(days=45), data_admissao + timedelta(days=90)
-                if venc_45.year == ano_int and venc_45.month == mes_int: 
-                    alertas_contratos.append({"nome": nome, "dia": venc_45.day, "tipo": "45 Dias"})
-                if venc_90.year == ano_int and venc_90.month == mes_int: 
-                    alertas_contratos.append({"nome": nome, "dia": venc_90.day, "tipo": "90 Dias"})
+                if venc_45.year == ano_int and venc_45.month == mes_int: alertas_contratos.append({"nome": nome, "dia": venc_45.day, "tipo": "45 Dias"})
+                if venc_90.year == ano_int and venc_90.month == mes_int: alertas_contratos.append({"nome": nome, "dia": venc_90.day, "tipo": "90 Dias"})
             except: pass
             
         nasc_str = extrair_texto(props, "Data de Nascimento")
         if nasc_str == "Outros / Não Informado": nasc_str = extrair_texto(props, "Nascimento")
         if nasc_str != "Outros / Não Informado":
             try:
-                if int(nasc_str.split("-")[1]) == mes_int: 
-                    alertas_aniversarios.append({"nome": nome, "dia": int(nasc_str.split("-")[2])})
+                if int(nasc_str.split("-")[1]) == mes_int: alertas_aniversarios.append({"nome": nome, "dia": int(nasc_str.split("-")[2])})
             except: pass
 
     alertas_aniversarios = sorted(alertas_aniversarios, key=lambda x: x["dia"])
@@ -470,7 +393,6 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     dict_setores = {}
     for item in atestados_itens:
         s = formatar_setor(extrair_texto(item.get("properties", {}), "Setor"))
-        # BLINDAGEM UCHOA EM ATESTADOS
         if "Uchoa" in s: continue
         if s not in dict_setores: dict_setores[s] = {"setor": s, "atestados": 0, "faltas": 0}
         dict_setores[s]["atestados"] += 1
@@ -479,65 +401,41 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     dict_ranking, dict_he_setor = {}, {}
     total_perdas_r = 0.0
 
-    # ---------------------------------------------------------
-    # INTEGRAÇÃO DO BANCO SQLITE (FALTAS E DINHEIRO DA FOLHA)
-    # ---------------------------------------------------------
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
-        if setor == "Todos":
-            cursor.execute("SELECT nome_funcionario, setor, valor_desconto, faltas_dias FROM historico_folha WHERE mes = ? AND ano = ?", (mes_int, ano_int))
-        else:
-            cursor.execute("SELECT nome_funcionario, setor, valor_desconto, faltas_dias FROM historico_folha WHERE mes = ? AND ano = ? COLLATE NOCASE", (mes_int, ano_int))
-            
+        if setor == "Todos": cursor.execute("SELECT nome_funcionario, setor, valor_desconto, faltas_dias FROM historico_folha WHERE mes = ? AND ano = ?", (mes_int, ano_int))
+        else: cursor.execute("SELECT nome_funcionario, setor, valor_desconto, faltas_dias FROM historico_folha WHERE mes = ? AND ano = ? COLLATE NOCASE", (mes_int, ano_int))
         for rec in cursor.fetchall():
             setor_f = formatar_setor(rec[1])
-            # BLINDAGEM UCHOA NO HISTÓRICO LOCAL
             if "Uchoa" in setor_f: continue
-            
-            if setor != "Todos" and setor_f != formatar_setor(setor):
-                continue
-
+            if setor != "Todos" and setor_f != formatar_setor(setor): continue
             nome_f = rec[0]
             val_desc = rec[2] if rec[2] is not None else 0.0
             faltas_d = rec[3] if rec[3] is not None else 0.0
-            
             total_perdas_r += val_desc
             total_faltas_inteiras += faltas_d
-            
             iniciar_perfil(nome_f)
             dict_perfis[nome_f]["faltas_dias"] += faltas_d
             dict_ranking[nome_f] = dict_ranking.get(nome_f, 0) + faltas_d
-            
             if setor_f not in dict_setores: dict_setores[setor_f] = {"setor": setor_f, "atestados": 0, "faltas": 0}
             dict_setores[setor_f]["faltas"] += faltas_d
-            
         conn.close()
-    except Exception as e:
-        pass
+    except Exception as e: pass
 
-    # ---------------------------------------------------------
-    # RESTAURANDO TODOS OS GRÁFICOS E KPIs 
-    # ---------------------------------------------------------
     for item in todos_freq:
         dt = extrair_texto(item.get("properties", {}), "Data")
         if dt != "Outros / Não Informado" and inicio_mes_fiscal <= dt[:10] <= fim_mes_fiscal:
             props = item.get("properties", {})
             setor_freq = formatar_setor(extrair_texto(props, "Setor"))
-            
-            # BLINDAGEM UCHOA NA FREQUÊNCIA DO NOTION
             if "Uchoa" in setor_freq: continue
-            
             nome = get_nome_correto(props)
             iniciar_perfil(nome)
-            
             prop_dias = props.get("Dias") or props.get("# Dias") or {}
             dias_descontados = prop_dias.get("number") if prop_dias.get("type") == "number" else 0
             if not dias_descontados or dias_descontados == 0:
                 total_atrasos += 1
                 dict_perfis[nome]["atrasos"] += 1
-                
             prop_he = props.get("Horas Extras") or props.get("HE") or props.get("Valor HE") or {}
             qtd_he = prop_he.get("number") if prop_he.get("type") == "number" else 0
             if qtd_he and qtd_he > 0:
@@ -545,7 +443,7 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
                 if setor_freq not in dict_he_setor: dict_he_setor[setor_freq] = 0
                 dict_he_setor[setor_freq] += qtd_he
 
-    ranking_faltas = sorted([{"nome": k, "faltas": v} for k, v in dict_ranking.items()], key=lambda x: x["faltas"], reverse=True)[:5]
+    ranking_faltas = sorted([{"nome": k, "faltas": v} for k, v in dict_ranking.items()], key=lambda x: x["faltas"], reverse=True)[:10]
     grafico_he = sorted([{"setor": k, "horas": v} for k, v in dict_he_setor.items()], key=lambda x: x["horas"], reverse=True)
     grafico_setores = list(dict_setores.values())
 
@@ -553,11 +451,11 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     for item in atestados_itens:
         props = item.get("properties", {})
         setor_atst = formatar_setor(extrair_texto(props, "Setor"))
-        
-        # BLINDAGEM UCHOA NOS ATESTADOS INDIVIDUAIS
         if "Uchoa" in setor_atst: continue
         
-        nome = get_nome_correto(props)
+        # Puxa o nome passando "is_atestado=True" para aplicar a tesoura digital!
+        nome = get_nome_correto(props, is_atestado=True)
+        
         iniciar_perfil(nome)
         dict_ranking_atestados[nome] = dict_ranking_atestados.get(nome, 0) + 1
         medico = extrair_texto(props, "Médico")
@@ -572,18 +470,18 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
         else:
             dict_perfis[nome]["historico_atestados"].append({"data": data_str[:10] if data_str != "Outros / Não Informado" else "-", "motivo": motivo})
     
-    ranking_atestados = sorted([{"nome": k, "atestados": v} for k, v in dict_ranking_atestados.items()], key=lambda x: x["atestados"], reverse=True)[:5]
+    ranking_atestados = sorted([{"nome": k, "atestados": v} for k, v in dict_ranking_atestados.items()], key=lambda x: x["atestados"], reverse=True)[:10]
     ranking_medicos = sorted([{"nome": k, "quantidade": v} for k, v in dict_medicos.items()], key=lambda x: x["quantidade"], reverse=True)[:7]
     ranking_cids = sorted([{"nome": k, "quantidade": v} for k, v in dict_cids.items()], key=lambda x: x["quantidade"], reverse=True)[:10]
 
-    dict_adv = {}
+    dict_adv, dict_ranking_adv = {}, {}
     for item in advertencias_itens:
         props = item.get("properties", {})
         setor_adv = formatar_setor(extrair_texto(props, "Setor"))
         if "Uchoa" in setor_adv: continue
-        
         nome = get_nome_correto(props)
         iniciar_perfil(nome)
+        dict_ranking_adv[nome] = dict_ranking_adv.get(nome, 0) + 1
         motivo = extrair_texto(props, "Motivo")
         if motivo == "Outros / Não Informado": motivo = extrair_texto(props, "Tipo")
         dict_adv[motivo] = dict_adv.get(motivo, 0) + 1
@@ -591,6 +489,7 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
         dict_perfis[nome]["historico_advertencias"].append({"data": data_str[:10] if data_str != "Outros / Não Informado" else "-", "motivo": motivo})
         
     grafico_advertencias = [{"name": k, "value": v} for k, v in dict_adv.items()]
+    ranking_advertencias = sorted([{"nome": k, "advertencias": v} for k, v in dict_ranking_adv.items()], key=lambda x: x["advertencias"], reverse=True)[:10]
 
     competencias = ["Comunicação", "Produtividade", "Trabalho em Equipe", "Proatividade", "Pontualidade"]
     radar_somas, radar_cont = {c: 0 for c in competencias}, {c: 0 for c in competencias}
@@ -606,7 +505,6 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
                 radar_cont[c] += 1
                 soma_func += prop.get("number")
                 qtd_func += 1
-                
         if qtd_func > 0:
             media_func = soma_func / qtd_func
             curr_nota = dict_perfis[nome]["nota_desempenho"]
@@ -685,8 +583,11 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
         "custo_absenteismo": total_perdas_r, "avaliacoes": len(avaliacoes_itens),
         "graficoSetores": grafico_setores, "graficoTurnover": grafico_turnover, "graficoMotivos": grafico_motivos, "graficoHeadcount": grafico_headcount,
         "alertasAniversarios": alertas_aniversarios, "alertasContratos": alertas_contratos,
-        "graficoAdvertencias": grafico_advertencias, "rankingFaltas": ranking_faltas, 
-        "rankingAtestados": ranking_atestados, "rankingMedicos": ranking_medicos, "rankingCids": ranking_cids,       
+        "graficoAdvertencias": grafico_advertencias, 
+        "rankingFaltas": ranking_faltas, 
+        "rankingAtestados": ranking_atestados, 
+        "rankingAdvertencias": ranking_advertencias,
+        "rankingMedicos": ranking_medicos, "rankingCids": ranking_cids,       
         "graficoRadar": grafico_radar, "perfis360": dict_perfis,
         "alertasFerias": alertas_ferias, "totalHorasExtras": total_horas_extras, "graficoHorasExtras": grafico_he,
         "armarios": lista_armarios, "setoresDisponiveis": lista_setores
