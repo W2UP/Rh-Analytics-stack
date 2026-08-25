@@ -114,6 +114,46 @@ export function App() {
       setProcessandoPonto(false);
     }
   };
+
+  // --- FUNÇÃO PARA SALVAR OS LANÇAMENTOS NO BANCO DE DADOS ---
+  const [salvandoFolha, setSalvandoFolha] = useState(false);
+  const [mensagemFolha, setMensagemFolha] = useState("");
+
+  const handleSalvarFolha = async () => {
+    if (resultadoPonto.length === 0) return;
+    setSalvandoFolha(true);
+    setMensagemFolha("");
+
+    try {
+      const payload = {
+        mes: mesSelecionado,
+        ano: anoSelecionado,
+        lancamentos: resultadoPonto
+      };
+
+      const resposta = await fetch("http://127.0.0.1:8000/api/salvar_folha", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const dados = await resposta.json();
+      
+      if (dados.sucesso) {
+        setMensagemFolha("✅ Salvo com sucesso! Histórico auditável gerado.");
+        setTimeout(() => {
+          setResultadoPonto([]);
+          setMensagemFolha("");
+          carregarDadosDashboard(); // Recarrega os KPIs na hora para atualizar o gráfico!
+        }, 3000);
+      } else {
+        setMensagemFolha(`❌ Erro ao salvar: ${dados.erro}`);
+      }
+    } catch (err) {
+      setMensagemFolha("❌ Erro de conexão com o servidor Python.");
+    } finally {
+      setSalvandoFolha(false);
+    }
+  };
   
   const exportarPDF = async () => {
     if (kpis.funcionarios === "-") { alert("Aguarde os dados carregarem."); return; }
@@ -786,9 +826,17 @@ export function App() {
                     <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-6">
                       <div>
                         <h2 className="text-2xl font-bold text-white flex items-center gap-3"><CheckCircle2 className="w-6 h-6 text-emerald-500"/> Sucesso! Relatório Processado</h2>
-                        <p className="text-slate-400 text-sm mt-1">{resultadoPonto.length} funcionários processados com desconto financeiro calculado.</p>
+                        <p className="text-slate-400 text-sm mt-1">{resultadoPonto.length} funcionários calculados para {NOME_MESES[mesSelecionado-1]}/{anoSelecionado}.</p>
                       </div>
-                      <button onClick={() => setResultadoPonto([])} className="px-4 py-2 bg-[#232936] hover:bg-[#2A3142] text-white text-sm font-medium rounded-lg transition-colors border border-white/5">Processar Novo Arquivo</button>
+                      
+                      <div className="flex items-center gap-3">
+                        {mensagemFolha && <span className="text-sm font-medium animate-pulse">{mensagemFolha}</span>}
+                        <button onClick={() => setResultadoPonto([])} disabled={salvandoFolha} className="px-4 py-2 bg-[#232936] hover:bg-[#2A3142] text-white text-sm font-medium rounded-lg transition-colors border border-white/5">Cancelar / Limpar</button>
+                        <button onClick={handleSalvarFolha} disabled={salvandoFolha} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-lg transition-colors shadow-lg flex items-center gap-2">
+                          {salvandoFolha ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
+                          {salvandoFolha ? 'Gravando no BD...' : 'Efetivar Lançamento'}
+                        </button>
+                      </div>
                     </div>
 
                     <div className="overflow-x-auto rounded-xl border border-white/10">
@@ -799,6 +847,7 @@ export function App() {
                             <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Setor</th>
                             <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Salário Base</th>
                             <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Tempo Descontado</th>
+                            <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Faltas (Dias)</th>
                             <th className="p-4 text-xs font-bold text-rose-500 uppercase tracking-wider border-b border-white/10">Impacto (R$)</th>
                           </tr>
                         </thead>
@@ -811,6 +860,7 @@ export function App() {
                               <td className="p-4 text-sm text-slate-300">{row.setor}</td>
                               <td className="p-4 text-sm text-slate-400">{formatarMoeda(row.salario_base)}</td>
                               <td className="p-4"><span className="px-2.5 py-1 bg-[#232936] text-slate-300 rounded text-xs font-bold font-mono border border-white/5">{row.horas_desconto}</span></td>
+                              <td className="p-4 font-bold text-amber-400">{row.faltas_dias > 0 ? `${row.faltas_dias}d` : '-'}</td>
                               <td className="p-4 font-bold text-rose-400">{formatarMoeda(row.valor_desconto)}</td>
                             </tr>
                           ))}
