@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { LayoutDashboard, Users, UserPlus, UserMinus, Activity, Stethoscope, AlertOctagon, Clock, Star, UsersRound, Download, TrendingDown, Lock, PieChart as PieChartIcon, DollarSign, Calendar, Gift, BellRing, AlertTriangle, Loader2, X, Briefcase, HeartPulse, Wallet, CalendarRange, Flame, Package, LockKeyhole, Unlock, Wrench, UploadCloud, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, UserMinus, Activity, Stethoscope, AlertOctagon, Clock, Star, UsersRound, Download, TrendingDown, Lock, PieChart as PieChartIcon, DollarSign, Calendar, Gift, BellRing, AlertTriangle, Loader2, X, Briefcase, HeartPulse, Wallet, CalendarRange, Flame, Package, LockKeyhole, Unlock, Wrench, UploadCloud, RefreshCw, CheckCircle2, Bot } from 'lucide-react';
 import html2canvas from 'html2canvas-pro';
 import { jsPDF } from 'jspdf';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, LabelList } from 'recharts';
@@ -26,9 +26,19 @@ export function App() {
   const [modoImpressao, setModoImpressao] = useState(false);
   const [modal360, setModal360] = useState<string | null>(null);
 
+  // ESTADOS DA TELA DE FOLHA
+  const [modoFolha, setModoFolha] = useState<'calculo' | 'rpa'>('calculo');
+  
   const [processandoPonto, setProcessandoPonto] = useState(false);
   const [resultadoPonto, setResultadoPonto] = useState<any[]>([]);
   const [erroPonto, setErroPonto] = useState("");
+  const [salvandoFolha, setSalvandoFolha] = useState(false);
+  const [mensagemFolha, setMensagemFolha] = useState("");
+
+  // ESTADOS DA TELA DE RPA
+  const [arquivoSapRpa, setArquivoSapRpa] = useState<File | null>(null);
+  const [arquivoBaseRpa, setArquivoBaseRpa] = useState<File | null>(null);
+  const [gerandoRpa, setGerandoRpa] = useState(false);
 
   const [kpis, setKpis] = useState({
     funcionarios: "-", admissoes: "-", desligamentos: "-", turnover: "-", 
@@ -95,9 +105,6 @@ export function App() {
     finally { setProcessandoPonto(false); }
   };
 
-  const [salvandoFolha, setSalvandoFolha] = useState(false);
-  const [mensagemFolha, setMensagemFolha] = useState("");
-
   const handleSalvarFolha = async () => {
     if (resultadoPonto.length === 0) return;
     setSalvandoFolha(true); setMensagemFolha("");
@@ -112,6 +119,39 @@ export function App() {
     } catch (err) { setMensagemFolha("❌ Erro de conexão com o servidor Python."); } 
     finally { setSalvandoFolha(false); }
   };
+
+  const handleGerarRPA = async () => {
+    if (!arquivoSapRpa || !arquivoBaseRpa) {
+      alert("Por favor, anexe os dois arquivos para iniciar o RPA.");
+      return;
+    }
+    setGerandoRpa(true);
+    const formData = new FormData();
+    formData.append("arquivo_sap", arquivoSapRpa);
+    formData.append("arquivo_escritorio", arquivoBaseRpa);
+
+    try {
+        const response = await fetch("http://127.0.0.1:8000/api/rpa_horas_extras", { method: "POST", body: formData });
+        if (response.ok) {
+            const blob = await response.blob();
+            if (blob.type === "application/json") {
+                const errData = JSON.parse(await blob.text());
+                alert("❌ Erro no Servidor: " + errData.erro);
+            } else {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "ESCRITORIO_PRONTO.xlsx";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+                alert("✅ Sucesso! Planilha da Contabilidade preenchida e baixada com sucesso!");
+            }
+        } else { alert("❌ Falha de comunicação com o Robô RPA."); }
+    } catch(e) { alert("❌ Erro técnico: " + e); } 
+    finally { setGerandoRpa(false); }
+  }
   
   const exportarPDF = async () => {
     if (kpis.funcionarios === "-") { alert("Aguarde os dados carregarem."); return; }
@@ -212,8 +252,8 @@ export function App() {
         <div className="max-w-[380px] w-full relative z-10">
           <div className="text-center mb-8">
             <div className="w-12 h-12 bg-[#1A1F2B] border border-white/5 rounded-xl flex items-center justify-center mx-auto mb-6 shadow-xl"><Activity className="text-white w-6 h-6" /></div>
-            <h2 className="text-3xl font-bold text-white mb-2 tracking-tight">RH Analytics</h2>
-            <p className="text-slate-400 text-sm">Dashboard de <span className="text-blue-400 cursor-pointer">RH Analytics</span>.</p>
+            <h2 className="text-3xl font-bold text-white mb-2 tracking-tight">Folha Analytics</h2>
+            <p className="text-slate-400 text-sm">Dashboard de <span className="text-blue-400 cursor-pointer">ERP & RH</span>.</p>
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <div><label className="block text-xs font-medium text-slate-400 mb-1.5 ml-1">Usuário</label><input type="text" value={usuario} onChange={(e) => setUsuario(e.target.value)} className="block w-full px-4 py-3 bg-[#1A1F2B] border border-white/5 rounded-lg text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all text-sm" placeholder="Ex: diretoria" required /></div>
@@ -299,7 +339,7 @@ export function App() {
         <aside className="w-64 bg-[#0B0F19] border-r border-white/5 flex flex-col hide-on-print z-10">
           <div className="p-6 flex items-center gap-3 border-b border-white/5">
             <Activity className="text-blue-500 w-8 h-8" />
-            <span className="text-white font-bold text-xl tracking-wide">RH Analytics</span>
+            <span className="text-white font-bold text-xl tracking-wide">Folha Analytics</span>
           </div>
           <nav className="flex-1 p-4 space-y-2">
             <button onClick={() => setMenuAtivo("visao_geral")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all text-sm ${menuAtivo === 'visao_geral' ? 'bg-[#1A1F2B] text-white border border-white/5' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}><LayoutDashboard className="w-4 h-4" /> Visão Geral</button>
@@ -309,7 +349,7 @@ export function App() {
             <button onClick={() => setMenuAtivo("desempenho")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all text-sm ${menuAtivo === 'desempenho' ? 'bg-[#1A1F2B] text-white border border-white/5' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}><Star className="w-4 h-4" /> Desempenho</button>
             
             <div className="pt-4 mt-4 border-t border-white/5">
-              <span className="px-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 block">Novos Módulos</span>
+              <span className="px-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 block">Motor Inteligente</span>
               <button onClick={() => setMenuAtivo("folha")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all text-sm ${menuAtivo === 'folha' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}><UploadCloud className="w-4 h-4" /> Automação de Ponto</button>
             </div>
           </nav>
@@ -329,7 +369,7 @@ export function App() {
               {menuAtivo === "financeiro" && `Indicadores Financeiros`}
               {menuAtivo === "armarios" && `Controle Físico de Armários`}
               {menuAtivo === "desempenho" && `Performance da Equipe`}
-              {menuAtivo === "folha" && `Processamento de Cartão de Ponto`}
+              {menuAtivo === "folha" && `Motor de Automação de Ponto`}
             </h1>
             
             <div className="flex items-center gap-4">
@@ -423,7 +463,7 @@ export function App() {
                           <BarChart data={kpis.graficoHeadcount} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
                             <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
                             <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
-                            <YAxis type="category" dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={120} />
+                            <YAxis type="category" dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={100} />
                             <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
                             <Bar isAnimationActive={!modoImpressao} dataKey="quantidade" name="Colaboradores" fill="#34D399" radius={[0, 4, 4, 0]} barSize={20}>
                               <LabelList dataKey="quantidade" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
@@ -456,7 +496,7 @@ export function App() {
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={kpis.graficoSetores} margin={{ top: 25, right: 20, left: -20, bottom: 25 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGrid} />
-                            <XAxis dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} interval={0} angle={-45} textAnchor="end" height={85} />
+                            <XAxis dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 10}} interval={0} angle={-30} textAnchor="end" height={60} />
                             <YAxis axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
                             <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
                             <Legend iconType="circle" wrapperStyle={{fontSize: '12px', paddingTop: '10px', color: chartText}} />
@@ -763,12 +803,9 @@ export function App() {
             </div>
           )}
 
-          {/* ========================================================= */}
           {/* PÁGINAS DE RANKING DINÂMICO (SÓ APARECEM NA IMPRESSÃO) */}
-          {/* ========================================================= */}
           {modoImpressao && (
             <>
-              {/* RANKING FALTAS */}
               <div id="print-ranking-faltas" className="p-8 rounded-xl bg-white border border-slate-200 shadow-sm mt-8">
                 <div className="mb-8 border-b pb-4 border-slate-200">
                   <h2 className="text-2xl font-bold text-slate-800 tracking-tight uppercase">
@@ -792,7 +829,6 @@ export function App() {
                 </div>
               </div>
 
-              {/* RANKING ATESTADOS */}
               <div id="print-ranking-atestados" className="p-8 rounded-xl bg-white border border-slate-200 shadow-sm mt-8">
                 <div className="mb-8 border-b pb-4 border-slate-200">
                   <h2 className="text-2xl font-bold text-slate-800 tracking-tight uppercase">
@@ -816,7 +852,6 @@ export function App() {
                 </div>
               </div>
 
-              {/* RANKING ADVERTÊNCIAS */}
               <div id="print-ranking-advertencias" className="p-8 rounded-xl bg-white border border-slate-200 shadow-sm mt-8">
                 <div className="mb-8 border-b pb-4 border-slate-200">
                   <h2 className="text-2xl font-bold text-slate-800 tracking-tight uppercase">
@@ -842,72 +877,151 @@ export function App() {
             </>
           )}
 
-          {/* ABA DA FOLHA DE PONTO NORMAL */}
+          {/* ========================================================= */}
+          {/* NOVA ABA: MOTOR DE AUTOMAÇÃO DE PONTO E RPA (INTERFACE) */}
+          {/* ========================================================= */}
           {(menuAtivo === "folha" && !modoImpressao) && (
             <div className="p-2 rounded-lg fade-in">
               <div className={`${cardBg} p-8 rounded-xl border border-white/5`}>
-                {resultadoPonto.length === 0 && !processandoPonto && (
-                  <div className="text-center flex flex-col items-center justify-center py-12">
-                    <div className="w-16 h-16 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mb-6"><UploadCloud className="w-8 h-8" /></div>
-                    <h2 className={`text-2xl font-bold ${textColor} mb-2`}>Motor de Cartão de Ponto</h2>
-                    <p className={`${textMuted} text-sm max-w-md mx-auto mb-8`}>Arraste o arquivo <b>sap_009.xls</b>. O sistema cruzará os nomes com o Banco de Dados do Notion, puxará o <b>Salário Base</b> e calculará o desconto exato em R$.</p>
-                    <div className="relative w-full max-w-2xl border-2 border-dashed border-slate-600 rounded-xl p-10 hover:border-emerald-500 hover:bg-emerald-500/5 transition-all cursor-pointer group">
-                      <input type="file" accept=".xls,.xlsx,.csv" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                      <UploadCloud className="w-10 h-10 text-slate-500 mx-auto mb-4 group-hover:text-emerald-500 transition-colors" />
-                      <p className="text-slate-300 font-medium">Clique ou arraste o arquivo do ponto aqui</p>
-                      <p className="text-slate-500 text-xs mt-2">Formatos suportados: .xls, .xlsx (Extraídos do SAP)</p>
-                    </div>
-                    {erroPonto && <div className="mt-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm font-medium">{erroPonto}</div>}
-                  </div>
-                )}
-                {processandoPonto && (
-                  <div className="text-center py-20 flex flex-col items-center">
-                    <Loader2 className="w-12 h-12 text-emerald-500 animate-spin mb-4" />
-                    <p className="text-white font-bold text-lg">Lendo milhares de linhas e calculando salários...</p>
-                  </div>
-                )}
-                {resultadoPonto.length > 0 && !processandoPonto && (
+                
+                {/* MENU DE OPÇÕES (CALCULO VS RPA) */}
+                <div className="flex gap-4 mb-8 border-b border-white/10 pb-6">
+                  <button onClick={() => setModoFolha('calculo')} className={`px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'calculo' ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
+                    <Activity className="w-5 h-5" /> Motor Financeiro (DSR/Faltas)
+                  </button>
+                  <button onClick={() => setModoFolha('rpa')} className={`px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'rpa' ? 'bg-blue-600 text-white border-blue-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
+                    <Bot className="w-5 h-5" /> Robô RPA (Contabilidade)
+                  </button>
+                </div>
+
+                {/* ========================================= */}
+                {/* TELA 1: MOTOR FINANCEIRO (ANTIGA)         */}
+                {/* ========================================= */}
+                {modoFolha === 'calculo' && (
                   <div>
-                    <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-6">
-                      <div>
-                        <h2 className="text-2xl font-bold text-white flex items-center gap-3"><CheckCircle2 className="w-6 h-6 text-emerald-500"/> Sucesso! Relatório Processado</h2>
-                        <p className="text-slate-400 text-sm mt-1">{resultadoPonto.length} funcionários calculados para {NOME_MESES[mesSelecionado-1]}/{anoSelecionado}.</p>
+                    {resultadoPonto.length === 0 && !processandoPonto && (
+                      <div className="text-center flex flex-col items-center justify-center py-8">
+                        <div className="w-16 h-16 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mb-6"><UploadCloud className="w-8 h-8" /></div>
+                        <h2 className={`text-2xl font-bold ${textColor} mb-2`}>Auditoria de Faltas e Descontos</h2>
+                        <p className={`${textMuted} text-sm max-w-md mx-auto mb-8`}>Arraste o arquivo <b>sap_009.xls</b>. O sistema cruzará os nomes com o Banco de Dados do Notion para calcular o desconto exato em R$.</p>
+                        <div className="relative w-full max-w-2xl border-2 border-dashed border-slate-600 rounded-xl p-10 hover:border-emerald-500 hover:bg-emerald-500/5 transition-all cursor-pointer group">
+                          <input type="file" accept=".xls,.xlsx,.csv" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                          <UploadCloud className="w-10 h-10 text-slate-500 mx-auto mb-4 group-hover:text-emerald-500 transition-colors" />
+                          <p className="text-slate-300 font-medium">Clique ou arraste o arquivo do ponto aqui</p>
+                          <p className="text-slate-500 text-xs mt-2">Somente extrações originais do SAP.</p>
+                        </div>
+                        {erroPonto && <div className="mt-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm font-medium">{erroPonto}</div>}
                       </div>
-                      <div className="flex items-center gap-3">
-                        {mensagemFolha && <span className="text-sm font-medium animate-pulse">{mensagemFolha}</span>}
-                        <button onClick={() => setResultadoPonto([])} disabled={salvandoFolha} className="px-4 py-2 bg-[#232936] hover:bg-[#2A3142] text-white text-sm font-medium rounded-lg transition-colors border border-white/5">Cancelar / Limpar</button>
-                        <button onClick={handleSalvarFolha} disabled={salvandoFolha} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-lg transition-colors shadow-lg flex items-center gap-2">
-                          {salvandoFolha ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
-                          {salvandoFolha ? 'Gravando no BD...' : 'Efetivar Lançamento'}
-                        </button>
+                    )}
+                    {processandoPonto && (
+                      <div className="text-center py-20 flex flex-col items-center">
+                        <Loader2 className="w-12 h-12 text-emerald-500 animate-spin mb-4" />
+                        <p className="text-white font-bold text-lg">Lendo milhares de linhas e cruzando salários base...</p>
+                      </div>
+                    )}
+                    {resultadoPonto.length > 0 && !processandoPonto && (
+                      <div className="fade-in">
+                        <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-6">
+                          <div>
+                            <h2 className="text-2xl font-bold text-white flex items-center gap-3"><CheckCircle2 className="w-6 h-6 text-emerald-500"/> Sucesso! Relatório Processado</h2>
+                            <p className="text-slate-400 text-sm mt-1">{resultadoPonto.length} funcionários calculados para {NOME_MESES[mesSelecionado-1]}/{anoSelecionado}.</p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            {mensagemFolha && <span className="text-sm font-medium text-emerald-400 animate-pulse">{mensagemFolha}</span>}
+                            <button onClick={() => setResultadoPonto([])} disabled={salvandoFolha} className="px-4 py-2 bg-[#232936] hover:bg-[#2A3142] text-white text-sm font-medium rounded-lg transition-colors border border-white/5">Cancelar</button>
+                            <button onClick={handleSalvarFolha} disabled={salvandoFolha} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-lg transition-colors shadow-lg flex items-center gap-2">
+                              {salvandoFolha ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
+                              {salvandoFolha ? 'Gravando no BD...' : 'Efetivar Lançamento'}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="overflow-x-auto rounded-xl border border-white/10">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-[#232936]">
+                                <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Colaborador</th>
+                                <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Setor</th>
+                                <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Salário Base</th>
+                                <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Tempo Descontado</th>
+                                <th className="p-4 text-xs font-bold text-amber-500 uppercase tracking-wider border-b border-white/10">Faltas (Dias)</th>
+                                <th className="p-4 text-xs font-bold text-rose-500 uppercase tracking-wider border-b border-white/10">Impacto (R$)</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/5 bg-[#1A1F2B]">
+                              {resultadoPonto.map((row, idx) => (
+                                <tr key={idx} className="hover:bg-white/5 transition-colors">
+                                  <td className="p-4"><span className={`text-sm font-medium ${row.salario_base === 0 ? 'text-orange-400' : 'text-white'}`}>{row.nome}</span></td>
+                                  <td className="p-4 text-sm text-slate-300">{row.setor}</td>
+                                  <td className="p-4 text-sm text-slate-400">{formatarMoeda(row.salario_base)}</td>
+                                  <td className="p-4"><span className="px-2.5 py-1 bg-[#232936] text-slate-300 rounded text-xs font-bold font-mono border border-white/5">{row.horas_desconto}</span></td>
+                                  <td className="p-4 font-bold text-amber-400">{row.faltas_dias > 0 ? `${row.faltas_dias}d` : '-'}</td>
+                                  <td className="p-4 font-bold text-rose-400">{formatarMoeda(row.valor_desconto)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ========================================= */}
+                {/* TELA 2: NOVO ROBÔ RPA CONTABILIDADE       */}
+                {/* ========================================= */}
+                {modoFolha === 'rpa' && (
+                  <div className="fade-in py-4">
+                    <div className="text-center flex flex-col items-center justify-center mb-10">
+                      <div className="w-16 h-16 bg-blue-500/10 text-blue-500 rounded-full flex items-center justify-center mb-6"><Bot className="w-8 h-8" /></div>
+                      <h2 className={`text-2xl font-bold ${textColor} mb-2`}>Robô RPA: Fechamento Contábil</h2>
+                      <p className={`${textMuted} text-sm max-w-lg mx-auto`}>Anexe o espelho do SAP e a planilha oficial do escritório. O robô vai ler todas as matrículas, preencher as <b>Horas Extras</b> nas colunas amarelas sem estragar as cores e devolver a planilha pronta.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto mb-8">
+                      {/* CAIXA 1: SAP */}
+                      <div className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center ${arquivoSapRpa ? 'border-emerald-500 bg-emerald-500/5' : 'border-slate-600 bg-[#1A1F2B] hover:border-blue-500'}`}>
+                         <input type="file" accept=".xls,.xlsx" onChange={(e) => setArquivoSapRpa(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                         {arquivoSapRpa ? (
+                           <>
+                             <CheckCircle2 className="w-8 h-8 text-emerald-500 mb-3" />
+                             <span className="text-emerald-400 font-bold text-sm text-center line-clamp-1">{arquivoSapRpa.name}</span>
+                             <span className="text-slate-500 text-xs mt-1">Arquivo SAP pronto.</span>
+                           </>
+                         ) : (
+                           <>
+                             <UploadCloud className="w-8 h-8 text-slate-500 mb-3" />
+                             <span className="text-slate-300 font-bold text-sm text-center">1. Arquivo SAP (.xls)</span>
+                             <span className="text-slate-500 text-xs mt-1 text-center">Onde estão as horas registradas</span>
+                           </>
+                         )}
+                      </div>
+
+                      {/* CAIXA 2: PLANILHA ESCRITORIO */}
+                      <div className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center ${arquivoBaseRpa ? 'border-emerald-500 bg-emerald-500/5' : 'border-slate-600 bg-[#1A1F2B] hover:border-blue-500'}`}>
+                         <input type="file" accept=".xls,.xlsx" onChange={(e) => setArquivoBaseRpa(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                         {arquivoBaseRpa ? (
+                           <>
+                             <CheckCircle2 className="w-8 h-8 text-emerald-500 mb-3" />
+                             <span className="text-emerald-400 font-bold text-sm text-center line-clamp-1">{arquivoBaseRpa.name}</span>
+                             <span className="text-slate-500 text-xs mt-1">Planilha Base pronta.</span>
+                           </>
+                         ) : (
+                           <>
+                             <Briefcase className="w-8 h-8 text-slate-500 mb-3" />
+                             <span className="text-slate-300 font-bold text-sm text-center">2. Planilha Base (.xlsx)</span>
+                             <span className="text-slate-500 text-xs mt-1 text-center">A planilha oficial que vai pro contador</span>
+                           </>
+                         )}
                       </div>
                     </div>
-                    <div className="overflow-x-auto rounded-xl border border-white/10">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-[#232936]">
-                            <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Colaborador</th>
-                            <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Setor</th>
-                            <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Salário Base</th>
-                            <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Tempo Descontado</th>
-                            <th className="p-4 text-xs font-bold text-amber-500 uppercase tracking-wider border-b border-white/10">Faltas (Dias)</th>
-                            <th className="p-4 text-xs font-bold text-rose-500 uppercase tracking-wider border-b border-white/10">Impacto (R$)</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/5 bg-[#1A1F2B]">
-                          {resultadoPonto.map((row, idx) => (
-                            <tr key={idx} className="hover:bg-white/5 transition-colors">
-                              <td className="p-4"><span className={`text-sm font-medium ${row.salario_base === 0 ? 'text-orange-400' : 'text-white'}`}>{row.nome}</span></td>
-                              <td className="p-4 text-sm text-slate-300">{row.setor}</td>
-                              <td className="p-4 text-sm text-slate-400">{formatarMoeda(row.salario_base)}</td>
-                              <td className="p-4"><span className="px-2.5 py-1 bg-[#232936] text-slate-300 rounded text-xs font-bold font-mono border border-white/5">{row.horas_desconto}</span></td>
-                              <td className="p-4 font-bold text-amber-400">{row.faltas_dias > 0 ? `${row.faltas_dias}d` : '-'}</td>
-                              <td className="p-4 font-bold text-rose-400">{formatarMoeda(row.valor_desconto)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+
+                    <div className="flex justify-center">
+                      <button onClick={handleGerarRPA} disabled={gerandoRpa || !arquivoSapRpa || !arquivoBaseRpa} className={`px-8 py-4 rounded-xl font-bold text-sm transition-all shadow-lg flex items-center gap-3 ${gerandoRpa ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : (!arquivoSapRpa || !arquivoBaseRpa) ? 'bg-[#232936] text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white hover:shadow-blue-500/20 hover:-translate-y-1'}`}>
+                        {gerandoRpa ? <Loader2 className="w-5 h-5 animate-spin" /> : <Bot className="w-5 h-5" />}
+                        {gerandoRpa ? 'Robô trabalhando... Aguarde' : 'INICIAR RPA E BAIXAR PLANILHA'}
+                      </button>
                     </div>
+
                   </div>
                 )}
               </div>

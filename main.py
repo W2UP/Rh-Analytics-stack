@@ -1,5 +1,6 @@
 from fastapi import FastAPI, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import requests
 from datetime import datetime, timedelta 
@@ -12,7 +13,11 @@ import json
 import pandas as pd
 import unicodedata
 import io
+import re
+import openpyxl
+import warnings
 
+warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = FastAPI(title="RH Analytics ERP - Folha Edition")
@@ -181,6 +186,13 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
         setor_atual_sap = None
         faltas_dias_atual = 0.0
         
+        # LISTA NEGRA TEMPORÁRIA
+        nomes_ignorados = [
+            "Ana Carolina Sant Ana Vieira", "Debora Perpetua Barbosa", "Elias Honório Garcia",
+            "Gabriel Felipe Aparecido De Moraes Braz", "Gleice Kely Da Silva Rodrigues Barroso",
+            "Priscila Aparecida Cerqueira", "Vitoria Carolina Novaes Luiz"
+        ]
+        
         for i, row in df.iterrows():
             row_str = ' | '.join([str(x) if pd.notna(x) else "" for x in row.values])
             if 'Funcionário' in row_str and ':' in row_str:
@@ -189,9 +201,17 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
                     emp_info = parts[1].replace('|', '').strip()
                     emp_parts = emp_info.split(' ', 1)
                     if len(emp_parts) == 2:
-                        nome_atual_sap = normalizar_nome(emp_parts[1])
+                        nome_temp = normalizar_nome(emp_parts[1])
+                        pular_funcionario = False
+                        for n_block in nomes_ignorados:
+                            if normalizar_nome(n_block) in nome_temp:
+                                pular_funcionario = True
+                                break
+                        if pular_funcionario: nome_atual_sap = None
+                        else: nome_atual_sap = nome_temp
                         setor_atual_sap = None 
                         faltas_dias_atual = 0.0
+                        
             if 'Setor' in row_str and ':' in row_str:
                 parts = row_str.split(':')
                 if len(parts) > 1:
@@ -252,6 +272,183 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
         return {"sucesso": True, "processados": len(resultados), "dados": resultados}
     except Exception as e: return {"sucesso": False, "erro": str(e)}
 
+
+# ==========================================
+# FUNÇÃO AUXILIAR PARA SOMAR TEMPOS (HH:MM)
+# ==========================================
+def somar_horas(h1, h2):
+    if not h1: return h2
+    if not h2: return h1
+    try:
+        def para_minutos(h_str):
+            partes = h_str.split(':')
+            return int(partes[0]) * 60 + int(partes[1])
+        
+        total_min = para_minutos(h1) + para_minutos(h2)
+        horas = total_min // 60
+        minutos = total_min % 60
+        return f"{horas:02d}:{minutos:02d}"
+    except:
+        return h1
+# ==========================================
+# MOTOR RPA 3.0 - FALTAS E DSR COM REGRA INTELIGENTE
+# ==========================================
+@app.post("/api/rpa_horas_extras")
+async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritorio: UploadFile = File(...)):
+    try:
+        conteudo_sap = await arquivo_sap.read()
+        df_sap = pd.read_excel(io.BytesIO(conteudo_sap), header=None, engine='xlrd')
+
+        dados_sap = {}
+        current_norm = None
+        faltas_dias_atual = 0.0
+        dsr_perdidos_atual = 0
+        falta_completa_na_semana = False
+
+        for i, row in df_sap.iterrows():
+            row_str = ' | '.join([str(x).strip() if pd.notna(x) else "" for x in row.values])
+            
+            # Localiza o funcionário e normaliza o nome
+            if 'Funcionário' in row_str and ':' in row_str:
+                if current_norm and current_norm in dados_sap:
+                    dados_sap[current_norm]["faltas_dias"] = faltas_dias_atual
+                    dados_sap[current_norm]["dsr_per_perdidos"] = dsr_perdidos_atual
+                
+                parts = row_str.split(':')
+                if len(parts) > 1:
+                    emp_info = parts[1].replace('|', '').strip()
+                    emp_parts = emp_info.split(' ', 1)
+                    if len(emp_parts) == 2:
+                        current_norm = normalizar_nome(emp_parts[1])
+                        dados_sap[current_norm] = {"he_50": None, "he_100": None, "adc_noturno": None, "faltas_dias": 0.0, "dsr_per_perdidos": 0}
+                        faltas_dias_atual = 0.0
+                        dsr_perdidos_atual = 0
+                        falta_completa_na_semana = False
+                    else:
+                        current_norm = None
+                        faltas_dias_atual = 0.0
+                        dsr_perdidos_atual = 0
+                        
+            if current_norm:
+                # 1. Conta Faltas no dia
+                if 'FALTA' in row_str:
+                    vals = []
+                    for j in [4, 5, 6, 7]: 
+                        if j < len(row.values) and pd.notna(row.values[j]) and str(row.values[j]).strip() != "":
+                            vals.append(str(row.values[j]).strip().upper())
+                    fc = sum(1 for v in vals if 'FALTA' in v)
+                    if fc >= 3: 
+                        faltas_dias_atual += 1.0
+                        falta_completa_na_semana = True # Sinaliza que houve falta integral na semana
+                    elif fc == 2: 
+                        faltas_dias_atual += 0.5   
+                
+                # 2. Verifica o Domingo (DOM) e aplica a regra do DSR
+                if 'DOM' in row_str.upper():
+                    has_dsr_720 = False
+                    for c in range(8, len(row.values)):
+                        val = str(row.values[c]).strip()
+                        if val == '07:20' or re.match(r'^\d{2}:\d{2}$', val):
+                            has_dsr_720 = True
+                            break
+                    
+                    # REGRA: Só desconta DSR se houver FALTA integral na semana E o 07:20 em frente ao domingo
+                    if falta_completa_na_semana and has_dsr_720:
+                        dsr_perdidos_atual += 1
+                        
+                    # Reseta o sinalizador da semana para começar a contar o próximo ciclo até o próximo domingo
+                    falta_completa_na_semana = False
+
+            # Extrai HE 50% (Padrão 1 e 2)
+            if current_norm and 'Extra A 050%' in row_str:
+                match = re.search(r'Extra A 050%\s*:\s*(\d{1,3}:\d{2})', row_str)
+                if match: dados_sap[current_norm]["he_50"] = somar_horas(dados_sap[current_norm]["he_50"], match.group(1))
+
+            if current_norm and 'Ext Adi A 050%' in row_str:
+                match = re.search(r'Ext Adi A 050%\s*:\s*(\d{1,3}:\d{2})', row_str)
+                if match: dados_sap[current_norm]["he_50"] = somar_horas(dados_sap[current_norm]["he_50"], match.group(1))
+                
+            # Extrai HE 100% (Padrão 1 e 2)
+            if current_norm and 'Extra A 100%' in row_str:
+                match = re.search(r'Extra A 100%\s*:\s*(\d{1,3}:\d{2})', row_str)
+                if match: dados_sap[current_norm]["he_100"] = somar_horas(dados_sap[current_norm]["he_100"], match.group(1))
+
+            if current_norm and 'Ext Adi A 100%' in row_str:
+                match = re.search(r'Ext Adi A 100%\s*:\s*(\d{1,3}:\d{2})', row_str)
+                if match: dados_sap[current_norm]["he_100"] = somar_horas(dados_sap[current_norm]["he_100"], match.group(1))
+
+            # Extrai Adicional Noturno
+            if current_norm and 'Adc Noturno' in row_str:
+                match = re.search(r'(\d{1,3}:\d{2})', row_str.replace('Adc Noturno', ''))
+                if match: dados_sap[current_norm]["adc_noturno"] = match.group(1)
+
+        # Salva o último funcionário do loop
+        if current_norm and current_norm in dados_sap:
+            dados_sap[current_norm]["faltas_dias"] = faltas_dias_atual
+            dados_sap[current_norm]["dsr_per_perdidos"] = dsr_perdidos_atual
+
+        # 2. Abre a Planilha do Escritório (mantendo cores e formatações)
+        conteudo_escritorio = await arquivo_escritorio.read()
+        wb = openpyxl.load_workbook(io.BytesIO(conteudo_escritorio))
+
+        for ws in wb.worksheets:
+            col_nome = col_he50 = col_he100 = col_noturno = col_faltas_dsr = header_row = None
+            
+            for r in range(1, 15):
+                for c in range(1, ws.max_column + 1):
+                    val = str(ws.cell(row=r, column=c).value or "").strip().lower()
+                    if 'nome' in val and 'colaborador' in val: col_nome = c
+                    elif 'adc 50%' in val: col_he50 = c
+                    elif 'adc 100%' in val: col_he100 = c
+                    elif 'noturno' in val: col_noturno = c
+                    elif 'faltas' in val and 'dsr' in val: col_faltas_dsr = c
+                if col_nome and col_he50:
+                    header_row = r
+                    break
+
+            if col_nome and col_he50 and header_row:
+                for r in range(header_row + 1, ws.max_row + 1):
+                    nome_cell = ws.cell(row=r, column=col_nome).value
+                    if nome_cell:
+                        norm_excel = normalizar_nome(str(nome_cell))
+                        if norm_excel in dados_sap:
+                            info = dados_sap[norm_excel]
+                            
+                            if info["he_50"] and col_he50:
+                                ws.cell(row=r, column=col_he50).value = info["he_50"]
+                            if info["he_100"] and col_he100:
+                                ws.cell(row=r, column=col_he100).value = info["he_100"]
+                            if info.get("adc_noturno") and col_noturno:
+                                ws.cell(row=r, column=col_noturno).value = info["adc_noturno"]
+                                
+                            # Preenche Faltas / DSR no padrão estrito X+Xdsr (ex: 1+1dsr, 2+2dsr)
+                            if info.get("faltas_dias", 0) > 0 and col_faltas_dsr:
+                                qtd_f = info["faltas_dias"]
+                                qtd_dsr = info.get("dsr_per_perdidos", 0)
+                                
+                                # Só preenche se realmente perdeu DSR ou se teve faltas
+                                if qtd_dsr > 0:
+                                    f_str = str(int(qtd_f)) if qtd_f.is_integer() else str(qtd_f)
+                                    d_str = str(int(qtd_dsr))
+                                    formato_dsr = f"{f_str}+{d_str}dsr"
+                                    ws.cell(row=r, column=col_faltas_dsr).value = formato_dsr
+                                else:
+                                    # Se teve falta mas não perdeu DSR (ex: meio período), escreve só os dias ou 0 dsr conforme regra
+                                    f_str = str(int(qtd_f)) if qtd_f.is_integer() else str(qtd_f)
+                                    ws.cell(row=r, column=col_faltas_dsr).value = f"{f_str}+0dsr"
+
+        # 3. Retorna o arquivo gerado
+        saida_memoria = io.BytesIO()
+        wb.save(saida_memoria)
+        saida_memoria.seek(0)
+
+        return StreamingResponse(
+            saida_memoria,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=ESCRITORIO_PRONTO.xlsx", "Access-Control-Expose-Headers": "Content-Disposition"}
+        )
+    except Exception as e:
+        return {"sucesso": False, "erro": str(e)}
 class DadosFolha(BaseModel):
     mes: int
     ano: int
@@ -327,7 +524,6 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     total_ativos = len(ativos_itens)
     dict_perfis = {}
     
-    # NOVA FUNÇÃO BLINDADA PARA NOME - CORTA O "MEDIC" E "ATESTADO"
     def get_nome_correto(props, is_atestado=False):
         nome = "Outros / Não Informado"
         if "Funcionário" in props:
@@ -341,17 +537,14 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
         
         if nome == "Outros / Não Informado" and "Nome" in props: nome = extrair_texto(props, "Nome")
         
-        # A Mágica do Título para Atestados Relacionais Vazios
-        if nome == "Outros / Não Informado" or not nome.strip():
+        if is_atestado and (nome == "Outros / Não Informado" or not nome.strip()):
             for k, v in props.items():
                 if v.get("type") == "title" and v.get("title"):
                     nome_bruto = v["title"][0]["plain_text"]
-                    if is_atestado and '-' in nome_bruto:
-                        nome = nome_bruto.split('-')[0].strip() # Corta tudo pós-hífen
-                    else:
-                        nome = nome_bruto
+                    nome = re.split(r'[-–—]', nome_bruto)[0].strip()
                     break
-        return nome
+                    
+        return nome if nome else "Outros / Não Informado"
 
     def iniciar_perfil(nome):
         if nome not in dict_perfis:
@@ -429,6 +622,9 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
             props = item.get("properties", {})
             setor_freq = formatar_setor(extrair_texto(props, "Setor"))
             if "Uchoa" in setor_freq: continue
+            
+            if setor != "Todos" and setor_freq != formatar_setor(setor): continue
+            
             nome = get_nome_correto(props)
             iniciar_perfil(nome)
             prop_dias = props.get("Dias") or props.get("# Dias") or {}
@@ -453,7 +649,6 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
         setor_atst = formatar_setor(extrair_texto(props, "Setor"))
         if "Uchoa" in setor_atst: continue
         
-        # Puxa o nome passando "is_atestado=True" para aplicar a tesoura digital!
         nome = get_nome_correto(props, is_atestado=True)
         
         iniciar_perfil(nome)
