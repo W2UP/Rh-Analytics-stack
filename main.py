@@ -8,6 +8,8 @@ import calendar
 import urllib3
 import concurrent.futures
 import time 
+
+
 import sqlite3
 import json
 import pandas as pd
@@ -130,9 +132,19 @@ def extrair_texto(propriedades, nome_coluna):
     return "Outros / Não Informado"
 
 def normalizar_nome(nome):
-    if not nome or nome == "Outros / Não Informado": return ""
+    if not nome or nome == "Outros / Não Informado": 
+        return ""
+    
     n = str(nome).strip().upper()
-    return unicodedata.normalize('NFKD', n).encode('ASCII', 'ignore').decode('utf-8')
+    # 1. Remove os acentos
+    n = unicodedata.normalize('NFKD', n).encode('ASCII', 'ignore').decode('utf-8')
+    
+    # 2. Filtro inteligente para ignorar preposições e erros de digitação comuns
+    palavras = n.split()
+    palavras_limpas = [p for p in palavras if p not in ["DE", "DA", "DO", "DAS", "DOS", "E"]]
+    
+    # 3. Junta tudo de novo com espaços perfeitos
+    return " ".join(palavras_limpas)
 
 def sincronizar_tudo():
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
@@ -273,7 +285,7 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
     except Exception as e: return {"sucesso": False, "erro": str(e)}
 
 
-# ==========================================
+    # ==========================================
 # FUNÇÃO AUXILIAR PARA SOMAR TEMPOS (HH:MM)
 # ==========================================
 def somar_horas(h1, h2):
@@ -290,8 +302,9 @@ def somar_horas(h1, h2):
         return f"{horas:02d}:{minutos:02d}"
     except:
         return h1
+
 # ==========================================
-# MOTOR RPA 3.0 - FALTAS E DSR COM REGRA INTELIGENTE
+# MOTOR RPA 3.0 - REGRA ABSOLUTA RH (FALTAS E DSR)
 # ==========================================
 @app.post("/api/rpa_horas_extras")
 async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritorio: UploadFile = File(...)):
@@ -303,16 +316,21 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
         current_norm = None
         faltas_dias_atual = 0.0
         dsr_perdidos_atual = 0
-        falta_completa_na_semana = False
+        teve_falta_integral_na_semana = False
 
         for i, row in df_sap.iterrows():
             row_str = ' | '.join([str(x).strip() if pd.notna(x) else "" for x in row.values])
             
-            # Localiza o funcionário e normaliza o nome
+            # Localiza o funcionário
             if 'Funcionário' in row_str and ':' in row_str:
+                # Salva o anterior antes de limpar as variáveis
                 if current_norm and current_norm in dados_sap:
+                    # Se o mês cortou no meio da semana e ficou uma falta pendente, cobra o DSR
+                    if teve_falta_integral_na_semana: 
+                        dsr_perdidos_atual += 1
+                    
                     dados_sap[current_norm]["faltas_dias"] = faltas_dias_atual
-                    dados_sap[current_norm]["dsr_per_perdidos"] = dsr_perdidos_atual
+                    dados_sap[current_norm]["dsr_perdidos"] = dsr_perdidos_atual
                 
                 parts = row_str.split(':')
                 if len(parts) > 1:
@@ -320,74 +338,63 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
                     emp_parts = emp_info.split(' ', 1)
                     if len(emp_parts) == 2:
                         current_norm = normalizar_nome(emp_parts[1])
-                        dados_sap[current_norm] = {"he_50": None, "he_100": None, "adc_noturno": None, "faltas_dias": 0.0, "dsr_per_perdidos": 0}
+                        dados_sap[current_norm] = {"he_50": None, "he_100": None, "adc_noturno": None, "faltas_dias": 0.0, "dsr_perdidos": 0}
                         faltas_dias_atual = 0.0
                         dsr_perdidos_atual = 0
-                        falta_completa_na_semana = False
+                        teve_falta_integral_na_semana = False
                     else:
                         current_norm = None
-                        faltas_dias_atual = 0.0
-                        dsr_perdidos_atual = 0
                         
             if current_norm:
-                # 1. Conta Faltas no dia
+                # 1. Conta Faltas Diárias (Apenas dias inteiros somam)
                 if 'FALTA' in row_str:
                     vals = []
                     for j in [4, 5, 6, 7]: 
                         if j < len(row.values) and pd.notna(row.values[j]) and str(row.values[j]).strip() != "":
                             vals.append(str(row.values[j]).strip().upper())
                     fc = sum(1 for v in vals if 'FALTA' in v)
+                    
                     if fc >= 3: 
                         faltas_dias_atual += 1.0
-                        falta_completa_na_semana = True # Sinaliza que houve falta integral na semana
-                    elif fc == 2: 
-                        faltas_dias_atual += 0.5   
-                
-                # 2. Verifica o Domingo (DOM) e aplica a regra do DSR
+                        teve_falta_integral_na_semana = True # Aciona o gatilho da punição do DSR
+
+                # 2. Bateu no Domingo, fecha a semana
                 if 'DOM' in row_str.upper():
-                    has_dsr_720 = False
-                    for c in range(8, len(row.values)):
-                        val = str(row.values[c]).strip()
-                        if val == '07:20' or re.match(r'^\d{2}:\d{2}$', val):
-                            has_dsr_720 = True
-                            break
-                    
-                    # REGRA: Só desconta DSR se houver FALTA integral na semana E o 07:20 em frente ao domingo
-                    if falta_completa_na_semana and has_dsr_720:
+                    # REGRA ABSOLUTA: Teve falta integral? Perde 1 DSR. (Ignora o que o SAP diz)
+                    if teve_falta_integral_na_semana:
                         dsr_perdidos_atual += 1
                         
-                    # Reseta o sinalizador da semana para começar a contar o próximo ciclo até o próximo domingo
-                    falta_completa_na_semana = False
+                    # Zera a semana para começar a contar o próximo ciclo
+                    teve_falta_integral_na_semana = False
 
-            # Extrai HE 50% (Padrão 1 e 2)
-            if current_norm and 'Extra A 050%' in row_str:
-                match = re.search(r'Extra A 050%\s*:\s*(\d{1,3}:\d{2})', row_str)
-                if match: dados_sap[current_norm]["he_50"] = somar_horas(dados_sap[current_norm]["he_50"], match.group(1))
+                # 3. Captura Horas Extras
+                if 'Extra A 050%' in row_str:
+                    match = re.search(r'Extra A 050%\s*:\s*(\d{1,3}:\d{2})', row_str)
+                    if match: dados_sap[current_norm]["he_50"] = somar_horas(dados_sap[current_norm]["he_50"], match.group(1))
 
-            if current_norm and 'Ext Adi A 050%' in row_str:
-                match = re.search(r'Ext Adi A 050%\s*:\s*(\d{1,3}:\d{2})', row_str)
-                if match: dados_sap[current_norm]["he_50"] = somar_horas(dados_sap[current_norm]["he_50"], match.group(1))
-                
-            # Extrai HE 100% (Padrão 1 e 2)
-            if current_norm and 'Extra A 100%' in row_str:
-                match = re.search(r'Extra A 100%\s*:\s*(\d{1,3}:\d{2})', row_str)
-                if match: dados_sap[current_norm]["he_100"] = somar_horas(dados_sap[current_norm]["he_100"], match.group(1))
+                if 'Ext Adi A 050%' in row_str:
+                    match = re.search(r'Ext Adi A 050%\s*:\s*(\d{1,3}:\d{2})', row_str)
+                    if match: dados_sap[current_norm]["he_50"] = somar_horas(dados_sap[current_norm]["he_50"], match.group(1))
+                    
+                if 'Extra A 100%' in row_str:
+                    match = re.search(r'Extra A 100%\s*:\s*(\d{1,3}:\d{2})', row_str)
+                    if match: dados_sap[current_norm]["he_100"] = somar_horas(dados_sap[current_norm]["he_100"], match.group(1))
 
-            if current_norm and 'Ext Adi A 100%' in row_str:
-                match = re.search(r'Ext Adi A 100%\s*:\s*(\d{1,3}:\d{2})', row_str)
-                if match: dados_sap[current_norm]["he_100"] = somar_horas(dados_sap[current_norm]["he_100"], match.group(1))
+                if 'Ext Adi A 100%' in row_str:
+                    match = re.search(r'Ext Adi A 100%\s*:\s*(\d{1,3}:\d{2})', row_str)
+                    if match: dados_sap[current_norm]["he_100"] = somar_horas(dados_sap[current_norm]["he_100"], match.group(1))
 
-            # Extrai Adicional Noturno
-            if current_norm and 'Adc Noturno' in row_str:
-                match = re.search(r'(\d{1,3}:\d{2})', row_str.replace('Adc Noturno', ''))
-                if match: dados_sap[current_norm]["adc_noturno"] = match.group(1)
+                if 'Adc Noturno' in row_str:
+                    match = re.search(r'(\d{1,3}:\d{2})', row_str.replace('Adc Noturno', ''))
+                    if match: dados_sap[current_norm]["adc_noturno"] = match.group(1)
 
         # Salva o último funcionário do loop
         if current_norm and current_norm in dados_sap:
+            if teve_falta_integral_na_semana: dsr_perdidos_atual += 1
             dados_sap[current_norm]["faltas_dias"] = faltas_dias_atual
-            dados_sap[current_norm]["dsr_per_perdidos"] = dsr_perdidos_atual
+            dados_sap[current_norm]["dsr_perdidos"] = dsr_perdidos_atual
 
-        # 2. Abre a Planilha do Escritório (mantendo cores e formatações)
+        # 2. Injeta no Escritório
         conteudo_escritorio = await arquivo_escritorio.read()
         wb = openpyxl.load_workbook(io.BytesIO(conteudo_escritorio))
 
@@ -414,30 +421,20 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
                         if norm_excel in dados_sap:
                             info = dados_sap[norm_excel]
                             
-                            if info["he_50"] and col_he50:
-                                ws.cell(row=r, column=col_he50).value = info["he_50"]
-                            if info["he_100"] and col_he100:
-                                ws.cell(row=r, column=col_he100).value = info["he_100"]
-                            if info.get("adc_noturno") and col_noturno:
-                                ws.cell(row=r, column=col_noturno).value = info["adc_noturno"]
+                            if info["he_50"] and col_he50: ws.cell(row=r, column=col_he50).value = info["he_50"]
+                            if info["he_100"] and col_he100: ws.cell(row=r, column=col_he100).value = info["he_100"]
+                            if info.get("adc_noturno") and col_noturno: ws.cell(row=r, column=col_noturno).value = info["adc_noturno"]
                                 
-                            # Preenche Faltas / DSR no padrão estrito X+Xdsr (ex: 1+1dsr, 2+2dsr)
+                            # Preenche Faltas / DSR
                             if info.get("faltas_dias", 0) > 0 and col_faltas_dsr:
                                 qtd_f = info["faltas_dias"]
-                                qtd_dsr = info.get("dsr_per_perdidos", 0)
+                                qtd_dsr = info.get("dsr_perdidos", 0)
                                 
-                                # Só preenche se realmente perdeu DSR ou se teve faltas
-                                if qtd_dsr > 0:
-                                    f_str = str(int(qtd_f)) if qtd_f.is_integer() else str(qtd_f)
-                                    d_str = str(int(qtd_dsr))
-                                    formato_dsr = f"{f_str}+{d_str}dsr"
-                                    ws.cell(row=r, column=col_faltas_dsr).value = formato_dsr
-                                else:
-                                    # Se teve falta mas não perdeu DSR (ex: meio período), escreve só os dias ou 0 dsr conforme regra
-                                    f_str = str(int(qtd_f)) if qtd_f.is_integer() else str(qtd_f)
-                                    ws.cell(row=r, column=col_faltas_dsr).value = f"{f_str}+0dsr"
+                                f_str = str(int(qtd_f)) if qtd_f.is_integer() else str(qtd_f)
+                                d_str = str(int(qtd_dsr))
+                                
+                                ws.cell(row=r, column=col_faltas_dsr).value = f"{f_str}+{d_str}dsr"
 
-        # 3. Retorna o arquivo gerado
         saida_memoria = io.BytesIO()
         wb.save(saida_memoria)
         saida_memoria.seek(0)
@@ -449,6 +446,7 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
         )
     except Exception as e:
         return {"sucesso": False, "erro": str(e)}
+
 class DadosFolha(BaseModel):
     mes: int
     ano: int
