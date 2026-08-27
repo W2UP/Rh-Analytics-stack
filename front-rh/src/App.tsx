@@ -40,6 +40,11 @@ export function App() {
   const [arquivoBaseRpa, setArquivoBaseRpa] = useState<File | null>(null);
   const [gerandoRpa, setGerandoRpa] = useState(false);
 
+  // ESTADOS DO DASHBOARD DE HORAS EXTRAS (TEMPO REAL)
+  const [arquivoDashboard, setArquivoDashboard] = useState<File | null>(null);
+  const [processandoDashboard, setProcessandoDashboard] = useState(false);
+  const [dadosHorasExtras, setDadosHorasExtras] = useState<any>(null);
+
   const [kpis, setKpis] = useState({
     funcionarios: "-", admissoes: "-", desligamentos: "-", turnover: "-", 
     atestados: "-", advertencias: "-", faltas: "-", atrasos: "-", avaliacoes: "-",
@@ -152,6 +157,37 @@ export function App() {
     } catch(e) { alert("❌ Erro técnico: " + e); } 
     finally { setGerandoRpa(false); }
   }
+
+  // FUNÇÃO DE TEMPO REAL PARA O DASHBOARD DE HORAS EXTRAS
+  const handleAtualizarDashboardHoras = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setArquivoDashboard(file);
+    setProcessandoDashboard(true);
+    
+    const formData = new FormData();
+    formData.append("arquivo_sap", file);
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/dashboard_tempo_real", {
+        method: "POST",
+        body: formData
+      });
+      
+      const data = await response.json();
+      
+      if (data.sucesso) {
+        setDadosHorasExtras(data);
+      } else {
+        alert("Falha ao processar dashboard de horas: " + (data.erro || "Erro desconhecido"));
+      }
+    } catch (err) {
+      alert("Erro de conexão. O servidor Python está rodando?");
+    } finally {
+      setProcessandoDashboard(false);
+    }
+  };
   
   const exportarPDF = async () => {
     if (kpis.funcionarios === "-") { alert("Aguarde os dados carregarem."); return; }
@@ -684,10 +720,25 @@ export function App() {
                     <div className="p-3 bg-red-500/10 text-red-500 rounded-lg"><DollarSign className="w-6 h-6" /></div>
                     <div><p className={`text-xs ${textMuted} font-bold uppercase mb-1`}>Custo de Absenteísmo</p><h3 className={`text-2xl font-bold text-red-400`}>{formatarMoeda(kpis.custo_absenteismo)}</h3></div>
                   </div>
-                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}>
-                    <div className="p-3 bg-amber-500/10 text-amber-500 rounded-lg"><Clock className="w-6 h-6" /></div>
-                    <div><p className={`text-xs ${textMuted} font-bold uppercase mb-1`}>Horas Extras Realizadas</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.totalHorasExtras} <span className="text-sm text-slate-500">horas</span></h3></div>
+                  
+                  {/* CARD DE HORAS EXTRAS INTERATIVO COM UPLOAD */}
+                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4 relative group overflow-hidden cursor-pointer border border-transparent hover:border-amber-500/30 transition-all`}>
+                    <input type="file" accept=".xls,.xlsx" onChange={handleAtualizarDashboardHoras} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" title="Clique para anexar arquivo de ponto" />
+                    <div className={`p-3 rounded-lg ${processandoDashboard ? 'bg-slate-700 text-slate-400 animate-pulse' : 'bg-amber-500/10 text-amber-500 group-hover:scale-110 transition-transform'}`}>
+                      {processandoDashboard ? <Loader2 className="w-6 h-6 animate-spin" /> : <Clock className="w-6 h-6" />}
+                    </div>
+                    <div>
+                      <p className={`text-xs ${textMuted} font-bold uppercase mb-1 flex items-center gap-2`}>
+                        Horas Extras Realizadas
+                        <span className="opacity-0 group-hover:opacity-100 text-[9px] bg-amber-500/20 text-amber-500 px-1.5 rounded transition-opacity">Upload</span>
+                      </p>
+                      <h3 className={`text-2xl font-bold ${textColor}`}>
+                        {dadosHorasExtras ? dadosHorasExtras.total_horas_empresa : '0'} 
+                        <span className="text-sm text-slate-500 ml-1">horas</span>
+                      </h3>
+                    </div>
                   </div>
+
                   <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}>
                     <div className="p-3 bg-rose-500/10 text-rose-500 rounded-lg"><CalendarRange className="w-6 h-6" /></div>
                     <div><p className={`text-xs ${textMuted} font-bold uppercase mb-1`}>Férias em Risco de Dobra</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.alertasFerias?.length || 0} <span className="text-sm text-slate-500">colaboradores</span></h3></div>
@@ -695,7 +746,7 @@ export function App() {
                 </section>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-                  {/* TELA DE FÉRIAS SOMENTE APARECE FORA DA IMPRESSÃO */}
+                  {/* TELA DE FÉRIAS */}
                   {!modoImpressao && (
                     <div className={`${cardBg} p-6 rounded-xl flex flex-col`}>
                       <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Flame className="w-4 h-4 text-rose-500" /> Alerta de Passivo (Férias Vencendo)</h3>
@@ -718,22 +769,46 @@ export function App() {
                     </div>
                   )}
 
-                  <div className={`${cardBg} p-6 rounded-xl ${modoImpressao ? 'col-span-2' : ''}`}>
-                    <h3 className={`text-sm font-bold ${titleColor} mb-6 flex items-center gap-2 uppercase tracking-wider`}><Wallet className="w-4 h-4 text-amber-500" /> Volume de Horas Extras (Por Setor)</h3>
-                    <div className={modoImpressao ? "h-[300px]" : "h-[320px]"}>
-                      {kpis.graficoHorasExtras.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={kpis.graficoHorasExtras} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 15 }}>
-                            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGrid} />
-                            <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 12}} />
-                            <YAxis type="category" dataKey="setor" axisLine={false} tickLine={false} tick={{fill: chartText, fontSize: 11}} width={120} />
-                            <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} cursor={{fill: chartGrid}} />
-                            <Bar isAnimationActive={!modoImpressao} dataKey="horas" name="Horas Extras" fill="#F59E0B" radius={[0, 4, 4, 0]} barSize={20}>
-                              <LabelList dataKey="horas" position="right" fill={chartText} fontSize={12} fontWeight="bold" />
-                            </Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      ) : (<div className="flex h-full items-center justify-center text-slate-500 text-sm italic">Nenhuma hora extra registrada.</div>)}
+                  {/* GRÁFICO DINÂMICO DE HORAS EXTRAS EM TEMPO REAL */}
+                  <div className={`${cardBg} p-6 rounded-xl ${modoImpressao ? 'col-span-2' : 'flex flex-col'}`}>
+                    <div className="flex justify-between items-center mb-6">
+                      <h3 className={`text-sm font-bold ${titleColor} flex items-center gap-2 uppercase tracking-wider`}><Wallet className="w-4 h-4 text-amber-500" /> Volume de Horas Extras (Por Setor)</h3>
+                      {arquivoDashboard && <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded font-mono border border-emerald-500/30 line-clamp-1 max-w-[150px]">{arquivoDashboard.name}</span>}
+                    </div>
+                    
+                    <div className={modoImpressao ? "h-[300px]" : "h-[320px] relative overflow-y-auto custom-scrollbar pr-2"}>
+                      {processandoDashboard && (
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#1A1F2B]/90 rounded-lg">
+                          <Loader2 className="w-8 h-8 text-amber-500 animate-spin mb-3" />
+                          <p className="text-slate-300 text-sm font-bold">Processando Ponto...</p>
+                        </div>
+                      )}
+                      
+                      {dadosHorasExtras && dadosHorasExtras.grafico_setores?.length > 0 ? (
+                        <div className="space-y-4 pt-1">
+                          {dadosHorasExtras.grafico_setores.map((setor: any, idx: number) => {
+                            const maiorValor = dadosHorasExtras.grafico_setores[0].minutos_absolutos;
+                            const porcentagem = Math.max(5, (setor.minutos_absolutos / maiorValor) * 100);
+                            
+                            return (
+                              <div key={idx} className="group flex flex-col gap-1.5">
+                                <div className="flex justify-between items-end">
+                                  <span className="text-sm font-medium text-slate-300">{setor.setor}</span>
+                                  <span className="text-xs font-bold text-amber-500">{setor.horas_formatadas}</span>
+                                </div>
+                                <div className="w-full h-3 bg-[#0E1218] rounded-full overflow-hidden border border-white/5">
+                                  <div className="h-full bg-gradient-to-r from-amber-600 to-amber-400 rounded-full transition-all duration-1000 ease-out relative group-hover:brightness-125" style={{ width: `${porcentagem}%` }}></div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="flex flex-col h-full items-center justify-center text-slate-500 text-sm italic relative">
+                          <p className="mb-2">Nenhum arquivo processado.</p>
+                          <p className="text-xs text-slate-600 font-sans px-8 text-center">Clique no card "Horas Extras Realizadas" ali em cima e envie o espelho do SAP de qualquer período.</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

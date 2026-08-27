@@ -9,7 +9,6 @@ import urllib3
 import concurrent.futures
 import time 
 
-
 import sqlite3
 import json
 import pandas as pd
@@ -134,16 +133,10 @@ def extrair_texto(propriedades, nome_coluna):
 def normalizar_nome(nome):
     if not nome or nome == "Outros / Não Informado": 
         return ""
-    
     n = str(nome).strip().upper()
-    # 1. Remove os acentos
     n = unicodedata.normalize('NFKD', n).encode('ASCII', 'ignore').decode('utf-8')
-    
-    # 2. Filtro inteligente para ignorar preposições e erros de digitação comuns
     palavras = n.split()
     palavras_limpas = [p for p in palavras if p not in ["DE", "DA", "DO", "DAS", "DOS", "E"]]
-    
-    # 3. Junta tudo de novo com espaços perfeitos
     return " ".join(palavras_limpas)
 
 def sincronizar_tudo():
@@ -198,7 +191,6 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
         setor_atual_sap = None
         faltas_dias_atual = 0.0
         
-        # LISTA NEGRA TEMPORÁRIA
         nomes_ignorados = [
             "Ana Carolina Sant Ana Vieira", "Debora Perpetua Barbosa", "Elias Honório Garcia",
             "Gabriel Felipe Aparecido De Moraes Braz", "Gleice Kely Da Silva Rodrigues Barroso",
@@ -240,9 +232,8 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
                     if j < len(row.values) and pd.notna(row.values[j]) and str(row.values[j]).strip() != "":
                         vals.append(str(row.values[j]).strip().upper())
                 fc = sum(1 for v in vals if 'FALTA' in v)
-                if fc == 4 or fc == 3: faltas_dias_atual += 1.0   
+                if fc >= 3: faltas_dias_atual += 1.0   
                 elif fc == 2: faltas_dias_atual += 0.5   
-                elif fc == 1: faltas_dias_atual += 0.0   
             
             if 'Tot Descontado' in row_str and nome_atual_sap:
                 time_val = None
@@ -284,10 +275,6 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
         return {"sucesso": True, "processados": len(resultados), "dados": resultados}
     except Exception as e: return {"sucesso": False, "erro": str(e)}
 
-
-    # ==========================================
-# FUNÇÃO AUXILIAR PARA SOMAR TEMPOS (HH:MM)
-# ==========================================
 def somar_horas(h1, h2):
     if not h1: return h2
     if not h2: return h1
@@ -303,9 +290,6 @@ def somar_horas(h1, h2):
     except:
         return h1
 
-# ==========================================
-# MOTOR RPA 3.0 - REGRA ABSOLUTA RH (FALTAS E DSR)
-# ==========================================
 @app.post("/api/rpa_horas_extras")
 async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritorio: UploadFile = File(...)):
     try:
@@ -321,11 +305,8 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
         for i, row in df_sap.iterrows():
             row_str = ' | '.join([str(x).strip() if pd.notna(x) else "" for x in row.values])
             
-            # Localiza o funcionário
             if 'Funcionário' in row_str and ':' in row_str:
-                # Salva o anterior antes de limpar as variáveis
                 if current_norm and current_norm in dados_sap:
-                    # Se o mês cortou no meio da semana e ficou uma falta pendente, cobra o DSR
                     if teve_falta_integral_na_semana: 
                         dsr_perdidos_atual += 1
                     
@@ -346,7 +327,6 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
                         current_norm = None
                         
             if current_norm:
-                # 1. Conta Faltas Diárias (Apenas dias inteiros somam)
                 if 'FALTA' in row_str:
                     vals = []
                     for j in [4, 5, 6, 7]: 
@@ -356,18 +336,13 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
                     
                     if fc >= 3: 
                         faltas_dias_atual += 1.0
-                        teve_falta_integral_na_semana = True # Aciona o gatilho da punição do DSR
+                        teve_falta_integral_na_semana = True
 
-                # 2. Bateu no Domingo, fecha a semana
                 if 'DOM' in row_str.upper():
-                    # REGRA ABSOLUTA: Teve falta integral? Perde 1 DSR. (Ignora o que o SAP diz)
                     if teve_falta_integral_na_semana:
                         dsr_perdidos_atual += 1
-                        
-                    # Zera a semana para começar a contar o próximo ciclo
                     teve_falta_integral_na_semana = False
 
-                # 3. Captura Horas Extras
                 if 'Extra A 050%' in row_str:
                     match = re.search(r'Extra A 050%\s*:\s*(\d{1,3}:\d{2})', row_str)
                     if match: dados_sap[current_norm]["he_50"] = somar_horas(dados_sap[current_norm]["he_50"], match.group(1))
@@ -388,13 +363,11 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
                     match = re.search(r'(\d{1,3}:\d{2})', row_str.replace('Adc Noturno', ''))
                     if match: dados_sap[current_norm]["adc_noturno"] = match.group(1)
 
-        # Salva o último funcionário do loop
         if current_norm and current_norm in dados_sap:
             if teve_falta_integral_na_semana: dsr_perdidos_atual += 1
             dados_sap[current_norm]["faltas_dias"] = faltas_dias_atual
             dados_sap[current_norm]["dsr_perdidos"] = dsr_perdidos_atual
 
-        # 2. Injeta no Escritório
         conteudo_escritorio = await arquivo_escritorio.read()
         wb = openpyxl.load_workbook(io.BytesIO(conteudo_escritorio))
 
@@ -425,14 +398,11 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
                             if info["he_100"] and col_he100: ws.cell(row=r, column=col_he100).value = info["he_100"]
                             if info.get("adc_noturno") and col_noturno: ws.cell(row=r, column=col_noturno).value = info["adc_noturno"]
                                 
-                            # Preenche Faltas / DSR
                             if info.get("faltas_dias", 0) > 0 and col_faltas_dsr:
                                 qtd_f = info["faltas_dias"]
                                 qtd_dsr = info.get("dsr_perdidos", 0)
-                                
                                 f_str = str(int(qtd_f)) if qtd_f.is_integer() else str(qtd_f)
                                 d_str = str(int(qtd_dsr))
-                                
                                 ws.cell(row=r, column=col_faltas_dsr).value = f"{f_str}+{d_str}dsr"
 
         saida_memoria = io.BytesIO()
@@ -444,6 +414,92 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": "attachment; filename=ESCRITORIO_PRONTO.xlsx", "Access-Control-Expose-Headers": "Content-Disposition"}
         )
+    except Exception as e:
+        return {"sucesso": False, "erro": str(e)}
+
+# ==========================================
+# DASHBOARD TEMPO REAL (HORAS EXTRAS DINÂMICAS)
+# ==========================================
+@app.post("/api/dashboard_tempo_real")
+async def dashboard_tempo_real(arquivo_sap: UploadFile = File(...)):
+    try:
+        conteudo_sap = await arquivo_sap.read()
+        df_sap = pd.read_excel(io.BytesIO(conteudo_sap), header=None, engine='xlrd')
+
+        horas_por_funcionario = {}
+        current_norm = None
+
+        # 1. Extração rápida de horas extras do SAP
+        for i, row in df_sap.iterrows():
+            row_str = ' | '.join([str(x).strip() if pd.notna(x) else "" for x in row.values])
+
+            if 'Funcionário' in row_str and ':' in row_str:
+                parts = row_str.split(':')
+                if len(parts) > 1:
+                    emp_parts = parts[1].replace('|', '').strip().split(' ', 1)
+                    if len(emp_parts) == 2:
+                        current_norm = normalizar_nome(emp_parts[1])
+                        if current_norm not in horas_por_funcionario:
+                            horas_por_funcionario[current_norm] = 0
+                    else:
+                        current_norm = None
+
+            if current_norm:
+                for padrao in ['Extra A 050%', 'Ext Adi A 050%', 'Extra A 100%', 'Ext Adi A 100%']:
+                    if padrao in row_str:
+                        match = re.search(rf'{padrao}\s*:\s*(\d{{1,3}}):(\d{{2}})', row_str)
+                        if match:
+                            minutos = (int(match.group(1)) * 60) + int(match.group(2))
+                            horas_por_funcionario[current_norm] += minutos
+
+        # 2. Puxa os setores reais direto do cache local (rápido e sem limites de API)
+        colabs = ler_do_banco("colaboradores") or []
+        mapa_setores = {}
+        for c in colabs:
+            props = c.get("properties", {})
+            nome = extrair_texto(props, "Funcionário")
+            if nome == "Outros / Não Informado": nome = extrair_texto(props, "Nome")
+            if nome == "Outros / Não Informado":
+                for k, v in props.items():
+                    if v.get("type") == "title" and v.get("title"):
+                        nome = v["title"][0]["plain_text"]
+                        break
+            setor = formatar_setor(extrair_texto(props, "Setor"))
+            if nome and nome != "Outros / Não Informado":
+                mapa_setores[normalizar_nome(nome)] = setor
+
+        # 3. Consolidação e agrupamento por setor real
+        totais_por_setor = {}
+        total_geral_minutos = 0
+
+        for nome, min_total in horas_por_funcionario.items():
+            if min_total > 0:
+                total_geral_minutos += min_total
+                setor = mapa_setores.get(nome, "Outros / Sem Setor")
+                totais_por_setor[setor] = totais_por_setor.get(setor, 0) + min_total
+
+        # 4. Formatação para o Front-end
+        h_totais = total_geral_minutos // 60
+        m_totais = total_geral_minutos % 60
+
+        grafico_setores = []
+        for setor, minutos in totais_por_setor.items():
+            h = minutos // 60
+            m = minutos % 60
+            grafico_setores.append({
+                "setor": setor,
+                "horas_formatadas": f"{h:02d}:{m:02d}",
+                "minutos_absolutos": minutos
+            })
+
+        grafico_setores.sort(key=lambda x: x["minutos_absolutos"], reverse=True)
+
+        return {
+            "sucesso": True,
+            "total_horas_empresa": f"{h_totais}:{m_totais:02d}",
+            "grafico_setores": grafico_setores
+        }
+
     except Exception as e:
         return {"sucesso": False, "erro": str(e)}
 
