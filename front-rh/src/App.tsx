@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { LayoutDashboard, Users, UserPlus, UserMinus, Activity, Stethoscope, AlertOctagon, Clock, Star, UsersRound, Download, TrendingDown, Lock, PieChart as PieChartIcon, DollarSign, Calendar, Gift, BellRing, AlertTriangle, Loader2, X, Briefcase, HeartPulse, Wallet, CalendarRange, Flame, Package, LockKeyhole, Unlock, Wrench, UploadCloud, RefreshCw, CheckCircle2, Bot } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, UserMinus, Activity, Stethoscope, AlertOctagon, Clock, Star, UsersRound, Download, TrendingDown, Lock, PieChart as PieChartIcon, DollarSign, Calendar, Gift, BellRing, AlertTriangle, Loader2, X, Briefcase, HeartPulse, Wallet, CalendarRange, Flame, Package, LockKeyhole, Unlock, Wrench, UploadCloud, RefreshCw, CheckCircle2, Bot, ShoppingCart, Pill } from 'lucide-react';
 import html2canvas from 'html2canvas-pro';
 import { jsPDF } from 'jspdf';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, LabelList } from 'recharts';
@@ -27,7 +27,7 @@ export function App() {
   const [modal360, setModal360] = useState<string | null>(null);
 
   // ESTADOS DA TELA DE FOLHA
-  const [modoFolha, setModoFolha] = useState<'calculo' | 'rpa'>('calculo');
+  const [modoFolha, setModoFolha] = useState<'calculo' | 'rpa' | 'vales' | 'convocacao' | 'farmacia'>('calculo');
   
   const [processandoPonto, setProcessandoPonto] = useState(false);
   const [resultadoPonto, setResultadoPonto] = useState<any[]>([]);
@@ -44,6 +44,22 @@ export function App() {
   const [arquivoDashboard, setArquivoDashboard] = useState<File | null>(null);
   const [processandoDashboard, setProcessandoDashboard] = useState(false);
   const [dadosHorasExtras, setDadosHorasExtras] = useState<any>(null);
+
+  // ESTADOS DA AUDITORIA DE CONVOCAÇÃO
+  const [arquivoPdfConvocacao, setArquivoPdfConvocacao] = useState<File | null>(null);
+  const [processandoConvocacao, setProcessandoConvocacao] = useState(false);
+  const [resultadoConvocacao, setResultadoConvocacao] = useState<any>(null);
+
+  // ESTADOS DO LANÇAMENTO DE VALES
+  const [arquivoPdfVale, setArquivoPdfVale] = useState<File | null>(null);
+  const [processandoVale, setProcessandoVale] = useState(false);
+  const [dadosPreLista, setDadosPreLista] = useState<any>(null);
+  const [nomeEditado, setNomeEditado] = useState("");
+  const [valorEditado, setValorEditado] = useState("");
+
+  // ESTADOS DA FARMACIA
+  const [arquivoExtratoFarmacia, setArquivoExtratoFarmacia] = useState<File | null>(null);
+  const [processandoFarmacia, setProcessandoFarmacia] = useState(false);
 
   const [kpis, setKpis] = useState({
     funcionarios: "-", admissoes: "-", desligamentos: "-", turnover: "-", 
@@ -186,6 +202,148 @@ export function App() {
       alert("Erro de conexão. O servidor Python está rodando?");
     } finally {
       setProcessandoDashboard(false);
+    }
+  };
+
+  const handleAuditarConvocacao = async () => {
+    if (!arquivoPdfConvocacao || !arquivoSapRpa) {
+      alert("Por favor, anexe o PDF do Termo Assinado e o Excel do SAP.");
+      return;
+    }
+    setProcessandoConvocacao(true);
+    setResultadoConvocacao(null);
+    
+    const formData = new FormData();
+    formData.append("arquivo_pdf", arquivoPdfConvocacao);
+    formData.append("arquivo_sap", arquivoSapRpa);
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/auditar_convocacao", { method: "POST", body: formData });
+      const data = await response.json();
+      if (data.sucesso) {
+        setResultadoConvocacao(data);
+      } else {
+        alert("Erro na Auditoria: " + data.erro);
+      }
+    } catch (e) {
+      alert("Erro de conexão com o Servidor Python.");
+    } finally {
+      setProcessandoConvocacao(false);
+    }
+  };
+
+  const handleExtrairVales = async () => {
+    if (!arquivoPdfVale) {
+      alert("Anexe o PDF do Romaneio primeiro.");
+      return;
+    }
+    setProcessandoVale(true);
+    setDadosPreLista(null);
+    
+    const formData = new FormData();
+    formData.append("arquivo_pdf", arquivoPdfVale);
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/extrair_vales", { method: "POST", body: formData });
+      const data = await response.json();
+      if (data.sucesso) {
+        setDadosPreLista(data);
+        setNomeEditado(data.cliente_lido);
+        setValorEditado(data.valor_calculado);
+      } else {
+        alert("❌ Erro ao ler PDF: " + data.erro);
+      }
+    } catch(e) {
+      alert("❌ Erro técnico: " + e);
+    } finally {
+      setProcessandoVale(false);
+    }
+  };
+
+  const handleInjetarValesConfirmados = async () => {
+    if (!arquivoBaseRpa) {
+      alert("Anexe a Planilha da Contabilidade primeiro.");
+      return;
+    }
+    setProcessandoVale(true);
+    
+    const formData = new FormData();
+    formData.append("arquivo_escritorio", arquivoBaseRpa);
+    formData.append("cliente_nome", nomeEditado);
+    formData.append("valor_desconto", valorEditado);
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/injetar_vales", { method: "POST", body: formData });
+      
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        const errData = await response.json();
+        alert("❌ " + errData.erro);
+      } else {
+        const funcNome = response.headers.get("X-Funcionario-Nome") || "Funcionário";
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `ESCRITORIO_VALES_${funcNome}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        
+        alert(`✅ Sucesso! Lançado na linha exata de: ${funcNome}`);
+        setDadosPreLista(null); // Reseta a tela após sucesso
+      }
+    } catch(e) {
+      alert("❌ Erro técnico: " + e);
+    } finally {
+      setProcessandoVale(false);
+    }
+  };
+
+  const handleGerarRpaFarmacia = async () => {
+    if (!arquivoExtratoFarmacia || !arquivoBaseRpa) {
+      alert("Por favor, anexe o Arquivo de Extrato da Farmácia (.xls) e a Planilha da Contabilidade.");
+      return;
+    }
+    setProcessandoFarmacia(true);
+    
+    const formData = new FormData();
+    formData.append("arquivo_extrato", arquivoExtratoFarmacia);
+    formData.append("arquivo_escritorio", arquivoBaseRpa);
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/rpa_farmacia", { method: "POST", body: formData });
+      
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        const errData = await response.json();
+        alert("❌ " + errData.erro);
+      } else {
+        const proc = response.headers.get("X-Processados") || "0";
+        const erros = response.headers.get("X-Nao-Encontrados") || "Nenhum";
+        
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "ESCRITORIO_FARMACIA_PRONTO.xlsx";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        
+        let msg = `✅ Sucesso! Foram lançados os descontos de ${proc} colaboradores.`;
+        if (erros !== "Nenhum") {
+            const listaErros = erros.split("|").join("\n- ");
+            msg += `\n\n⚠️ ATENÇÃO: Os seguintes nomes estavam no arquivo da farmácia mas não foram encontrados na sua planilha:\n- ${listaErros}`;
+        }
+        alert(msg);
+      }
+    } catch(e) {
+      alert("❌ Erro técnico: " + e);
+    } finally {
+      setProcessandoFarmacia(false);
     }
   };
   
@@ -959,13 +1117,22 @@ export function App() {
             <div className="p-2 rounded-lg fade-in">
               <div className={`${cardBg} p-8 rounded-xl border border-white/5`}>
                 
-                {/* MENU DE OPÇÕES (CALCULO VS RPA) */}
-                <div className="flex gap-4 mb-8 border-b border-white/10 pb-6">
-                  <button onClick={() => setModoFolha('calculo')} className={`px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'calculo' ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
+                {/* MENU DE OPÇÕES GERAL DA FOLHA */}
+                <div className="flex gap-4 mb-8 border-b border-white/10 pb-6 overflow-x-auto custom-scrollbar">
+                  <button onClick={() => setModoFolha('calculo')} className={`whitespace-nowrap px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'calculo' ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
                     <Activity className="w-5 h-5" /> Motor Financeiro (DSR/Faltas)
                   </button>
-                  <button onClick={() => setModoFolha('rpa')} className={`px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'rpa' ? 'bg-blue-600 text-white border-blue-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
+                  <button onClick={() => setModoFolha('rpa')} className={`whitespace-nowrap px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'rpa' ? 'bg-blue-600 text-white border-blue-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
                     <Bot className="w-5 h-5" /> Robô RPA (Contabilidade)
+                  </button>
+                  <button onClick={() => setModoFolha('convocacao')} className={`whitespace-nowrap px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'convocacao' ? 'bg-purple-600 text-white border-purple-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
+                    <CalendarRange className="w-5 h-5" /> Auditoria de Termos Extraordinários
+                  </button>
+                  <button onClick={() => setModoFolha('vales')} className={`whitespace-nowrap px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'vales' ? 'bg-orange-600 text-white border-orange-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
+                    <ShoppingCart className="w-5 h-5" /> Lançamento de Vales
+                  </button>
+                  <button onClick={() => setModoFolha('farmacia')} className={`whitespace-nowrap px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'farmacia' ? 'bg-pink-600 text-white border-pink-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
+                    <Pill className="w-5 h-5" /> Convênio Farmácia
                   </button>
                 </div>
 
@@ -1099,6 +1266,239 @@ export function App() {
 
                   </div>
                 )}
+
+                {/* ========================================= */}
+                {/* TELA 3: AUDITORIA DE TERMOS DE HORA EXTRA */}
+                {/* ========================================= */}
+                {modoFolha === 'convocacao' && (
+                  <div className="fade-in py-4">
+                    <div className="text-center flex flex-col items-center justify-center mb-10">
+                      <div className="w-16 h-16 bg-purple-500/10 text-purple-500 rounded-full flex items-center justify-center mb-6"><CalendarRange className="w-8 h-8" /></div>
+                      <h2 className={`text-2xl font-bold ${textColor} mb-2`}>Caça-Fantasmas: Absenteísmo em Hora Extra</h2>
+                      <p className={`${textMuted} text-sm max-w-lg mx-auto`}>Faça o upload do <b>PDF Escaneado</b> contendo as assinaturas e o arquivo original do <b>SAP</b>. O robô vai descobrir sozinho a data, ler os nomes assinados e cruzar com as batidas do relógio.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto mb-8">
+                      {/* CAIXA 1: PDF DO SCANNER */}
+                      <div className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center ${arquivoPdfConvocacao ? 'border-purple-500 bg-purple-500/5' : 'border-slate-600 bg-[#1A1F2B] hover:border-purple-500'}`}>
+                         <input type="file" accept=".pdf" onChange={(e) => setArquivoPdfConvocacao(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                         {arquivoPdfConvocacao ? (
+                           <>
+                             <CheckCircle2 className="w-8 h-8 text-purple-500 mb-3" />
+                             <span className="text-purple-400 font-bold text-sm text-center line-clamp-1">{arquivoPdfConvocacao.name}</span>
+                             <span className="text-slate-500 text-xs mt-1">Termo Lido com Sucesso.</span>
+                           </>
+                         ) : (
+                           <>
+                             <UploadCloud className="w-8 h-8 text-slate-500 mb-3" />
+                             <span className="text-slate-300 font-bold text-sm text-center">1. PDF Assinado (.pdf)</span>
+                             <span className="text-slate-500 text-xs mt-1 text-center">Arquivo gerado pela multifuncional</span>
+                           </>
+                         )}
+                      </div>
+
+                      {/* CAIXA 2: SAP */}
+                      <div className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center ${arquivoSapRpa ? 'border-purple-500 bg-purple-500/5' : 'border-slate-600 bg-[#1A1F2B] hover:border-purple-500'}`}>
+                         <input type="file" accept=".xls,.xlsx" onChange={(e) => setArquivoSapRpa(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                         {arquivoSapRpa ? (
+                           <>
+                             <CheckCircle2 className="w-8 h-8 text-purple-500 mb-3" />
+                             <span className="text-purple-400 font-bold text-sm text-center line-clamp-1">{arquivoSapRpa.name}</span>
+                             <span className="text-slate-500 text-xs mt-1">Espelho de Ponto pronto.</span>
+                           </>
+                         ) : (
+                           <>
+                             <Clock className="w-8 h-8 text-slate-500 mb-3" />
+                             <span className="text-slate-300 font-bold text-sm text-center">2. Arquivo SAP (.xls)</span>
+                             <span className="text-slate-500 text-xs mt-1 text-center">Exportação do mês correspondente</span>
+                           </>
+                         )}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-center mb-10">
+                      <button onClick={handleAuditarConvocacao} disabled={processandoConvocacao || !arquivoPdfConvocacao || !arquivoSapRpa} className={`px-8 py-4 rounded-xl font-bold text-sm transition-all shadow-lg flex items-center gap-3 ${processandoConvocacao ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : (!arquivoPdfConvocacao || !arquivoSapRpa) ? 'bg-[#232936] text-slate-500 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-500 text-white hover:shadow-purple-500/20 hover:-translate-y-1'}`}>
+                        {processandoConvocacao ? <Loader2 className="w-5 h-5 animate-spin" /> : <Activity className="w-5 h-5" />}
+                        {processandoConvocacao ? 'Lendo PDF e varrendo SAP...' : 'AUDITAR PRESENÇAS E FALTAS'}
+                      </button>
+                    </div>
+
+                    {/* TABELA DE RESULTADOS */}
+                    {resultadoConvocacao && (
+                      <div className="fade-in bg-[#1A1F2B] rounded-xl border border-white/10 p-6">
+                        <div className="flex justify-between items-center mb-6">
+                          <div>
+                            <h3 className="text-lg font-bold text-white">Relatório de Presença Confirmada</h3>
+                            <p className="text-slate-400 text-sm">Data da Convocação: <span className="text-purple-400 font-bold">{resultadoConvocacao.data_convocacao}</span> ({resultadoConvocacao.total_convocados} assinaturas lidas)</p>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 gap-3">
+                          {resultadoConvocacao.resultados.map((res: any, idx: number) => {
+                            const faltou = res.status.includes("Faltou");
+                            return (
+                              <div key={idx} className={`flex justify-between items-center p-4 rounded-lg border ${faltou ? 'bg-red-500/10 border-red-500/20' : 'bg-emerald-500/10 border-emerald-500/20'}`}>
+                                <div className="flex flex-col gap-1">
+                                  <span className="font-bold text-white">{res.nome_normalizado}</span>
+                                  <span className={`text-xs font-mono font-bold ${faltou ? 'text-red-400' : 'text-emerald-400'}`}>Relógio: {res.batidas}</span>
+                                </div>
+                                <span className={`px-4 py-2 rounded-lg font-bold text-sm ${faltou ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'bg-emerald-500/20 text-emerald-400'}`}>{res.status}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ========================================= */}
+                {/* TELA 4: LANÇAMENTO DE VALES / MÓVEIS      */}
+                {/* ========================================= */}
+                {modoFolha === 'vales' && (
+                  <div className="fade-in py-4">
+                    <div className="text-center flex flex-col items-center justify-center mb-10">
+                      <div className="w-16 h-16 bg-orange-500/10 text-orange-500 rounded-full flex items-center justify-center mb-6"><ShoppingCart className="w-8 h-8" /></div>
+                      <h2 className={`text-2xl font-bold ${textColor} mb-2`}>Robô RPA: Desconto de Móveis e Vales</h2>
+                      <p className={`${textMuted} text-sm max-w-lg mx-auto`}>Suba o PDF do romaneio para o robô ler. Você poderá <b>revisar e corrigir o nome</b> antes de autorizar a injeção na planilha da contabilidade.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto mb-8">
+                      {/* CAIXA 1: PDF DO ROMANEIO */}
+                      <div className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center ${arquivoPdfVale ? 'border-orange-500 bg-orange-500/5' : 'border-slate-600 bg-[#1A1F2B] hover:border-orange-500'}`}>
+                         <input type="file" accept=".pdf" onChange={(e) => setArquivoPdfVale(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                         {arquivoPdfVale ? (
+                           <>
+                             <CheckCircle2 className="w-8 h-8 text-orange-500 mb-3" />
+                             <span className="text-orange-400 font-bold text-sm text-center line-clamp-1">{arquivoPdfVale.name}</span>
+                           </>
+                         ) : (
+                           <>
+                             <UploadCloud className="w-8 h-8 text-slate-500 mb-3" />
+                             <span className="text-slate-300 font-bold text-sm text-center">1. Romaneio PDF</span>
+                           </>
+                         )}
+                      </div>
+
+                      {/* CAIXA 2: PLANILHA ESCRITORIO */}
+                      <div className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center ${arquivoBaseRpa ? 'border-orange-500 bg-orange-500/5' : 'border-slate-600 bg-[#1A1F2B] hover:border-orange-500'}`}>
+                         <input type="file" accept=".xls,.xlsx" onChange={(e) => setArquivoBaseRpa(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                         {arquivoBaseRpa ? (
+                           <>
+                             <CheckCircle2 className="w-8 h-8 text-orange-500 mb-3" />
+                             <span className="text-orange-400 font-bold text-sm text-center line-clamp-1">{arquivoBaseRpa.name}</span>
+                           </>
+                         ) : (
+                           <>
+                             <Briefcase className="w-8 h-8 text-slate-500 mb-3" />
+                             <span className="text-slate-300 font-bold text-sm text-center">2. Planilha Contabilidade (.xlsx)</span>
+                           </>
+                         )}
+                      </div>
+                    </div>
+
+                    {/* BOTÃO DE LER PDF */}
+                    {!dadosPreLista && (
+                      <div className="flex justify-center mb-10">
+                        <button onClick={handleExtrairVales} disabled={processandoVale || !arquivoPdfVale} className={`px-8 py-4 rounded-xl font-bold text-sm transition-all shadow-lg flex items-center gap-3 ${processandoVale ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : (!arquivoPdfVale) ? 'bg-[#232936] text-slate-500 cursor-not-allowed' : 'bg-[#232936] hover:bg-orange-600 hover:text-white text-orange-500 border border-orange-500 hover:shadow-orange-500/20'}`}>
+                          {processandoVale ? <Loader2 className="w-5 h-5 animate-spin" /> : <Activity className="w-5 h-5" />}
+                          1. LER DOCUMENTO (PRÉ-VISUALIZAR)
+                        </button>
+                      </div>
+                    )}
+
+                    {/* PAINEL DE REVISÃO E CONFIRMAÇÃO */}
+                    {dadosPreLista && (
+                      <div className="fade-in max-w-4xl mx-auto bg-[#1A1F2B] border border-orange-500/30 rounded-xl p-6 mb-8 shadow-2xl">
+                        <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
+                          <AlertTriangle className="w-6 h-6 text-amber-500" />
+                          <h3 className="text-lg font-bold text-white">Revisão do Lançamento</h3>
+                          {dadosPreLista.parcelas > 1 && <span className="ml-auto bg-amber-500/20 text-amber-400 px-3 py-1 text-xs font-bold rounded">Dividido em {dadosPreLista.parcelas}x (Total: R$ {dadosPreLista.valor_original})</span>}
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Nome do Colaborador (Corrija se necessário)</label>
+                            <input type="text" value={nomeEditado} onChange={(e) => setNomeEditado(e.target.value)} className="w-full bg-[#0E1218] border border-white/10 text-white px-4 py-3 rounded-lg focus:outline-none focus:border-orange-500" />
+                            <span className="text-[10px] text-slate-500 mt-1 block">O robô procurará este nome exato na planilha Excel.</span>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Valor do Desconto (R$)</label>
+                            <input type="text" value={valorEditado} onChange={(e) => setValorEditado(e.target.value)} className="w-full bg-[#0E1218] border border-white/10 text-emerald-400 font-bold px-4 py-3 rounded-lg focus:outline-none focus:border-orange-500" />
+                          </div>
+                        </div>
+
+                        <div className="flex justify-end gap-4">
+                          <button onClick={() => setDadosPreLista(null)} className="px-6 py-3 rounded-lg font-bold text-sm bg-transparent text-slate-400 hover:text-white hover:bg-white/5 transition-colors">Cancelar</button>
+                          <button onClick={handleInjetarValesConfirmados} disabled={processandoVale || !arquivoBaseRpa} className={`px-8 py-3 rounded-lg font-bold text-sm transition-all shadow-lg flex items-center gap-2 ${processandoVale ? 'bg-slate-800 text-slate-500' : 'bg-orange-600 hover:bg-orange-500 text-white'}`}>
+                            {processandoVale ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+                            2. CONFIRMAR E LANÇAR NO EXCEL
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ========================================= */}
+                {/* TELA 5: CONVÊNIO FARMÁCIA (NOVA)          */}
+                {/* ========================================= */}
+                {modoFolha === 'farmacia' && (
+                  <div className="fade-in py-4">
+                    <div className="text-center flex flex-col items-center justify-center mb-10">
+                      <div className="w-16 h-16 bg-pink-500/10 text-pink-500 rounded-full flex items-center justify-center mb-6"><Pill className="w-8 h-8" /></div>
+                      <h2 className={`text-2xl font-bold ${textColor} mb-2`}>Robô RPA: Convênio Farmácia em Massa</h2>
+                      <p className={`${textMuted} text-sm max-w-lg mx-auto`}>Anexe o Extrato da Farmácia <b>(.xls)</b> e a Planilha da Contabilidade. O robô vai varrer todos os nomes e injetar dezenas de valores simultaneamente na coluna correta.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto mb-8">
+                      {/* CAIXA 1: EXTRATO FARMÁCIA */}
+                      <div className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center ${arquivoExtratoFarmacia ? 'border-pink-500 bg-pink-500/5' : 'border-slate-600 bg-[#1A1F2B] hover:border-pink-500'}`}>
+                         <input type="file" accept=".xls,.xlsx" onChange={(e) => setArquivoExtratoFarmacia(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                         {arquivoExtratoFarmacia ? (
+                           <>
+                             <CheckCircle2 className="w-8 h-8 text-pink-500 mb-3" />
+                             <span className="text-pink-400 font-bold text-sm text-center line-clamp-1">{arquivoExtratoFarmacia.name}</span>
+                             <span className="text-slate-500 text-xs mt-1">Extrato pronto.</span>
+                           </>
+                         ) : (
+                           <>
+                             <UploadCloud className="w-8 h-8 text-slate-500 mb-3" />
+                             <span className="text-slate-300 font-bold text-sm text-center">1. Extrato da Farmácia (.xls)</span>
+                             <span className="text-slate-500 text-xs mt-1 text-center">Exportado direto do sistema da drogaria</span>
+                           </>
+                         )}
+                      </div>
+
+                      {/* CAIXA 2: PLANILHA ESCRITORIO */}
+                      <div className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center ${arquivoBaseRpa ? 'border-pink-500 bg-pink-500/5' : 'border-slate-600 bg-[#1A1F2B] hover:border-pink-500'}`}>
+                         <input type="file" accept=".xls,.xlsx" onChange={(e) => setArquivoBaseRpa(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                         {arquivoBaseRpa ? (
+                           <>
+                             <CheckCircle2 className="w-8 h-8 text-pink-500 mb-3" />
+                             <span className="text-pink-400 font-bold text-sm text-center line-clamp-1">{arquivoBaseRpa.name}</span>
+                             <span className="text-slate-500 text-xs mt-1">Planilha Base pronta.</span>
+                           </>
+                         ) : (
+                           <>
+                             <Briefcase className="w-8 h-8 text-slate-500 mb-3" />
+                             <span className="text-slate-300 font-bold text-sm text-center">2. Planilha Contabilidade (.xlsx)</span>
+                             <span className="text-slate-500 text-xs mt-1 text-center">A planilha oficial que vai pro contador</span>
+                           </>
+                         )}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-center">
+                      <button onClick={handleGerarRpaFarmacia} disabled={processandoFarmacia || !arquivoExtratoFarmacia || !arquivoBaseRpa} className={`px-8 py-4 rounded-xl font-bold text-sm transition-all shadow-lg flex items-center gap-3 ${processandoFarmacia ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : (!arquivoExtratoFarmacia || !arquivoBaseRpa) ? 'bg-[#232936] text-slate-500 cursor-not-allowed' : 'bg-pink-600 hover:bg-pink-500 text-white hover:shadow-pink-500/20 hover:-translate-y-1'}`}>
+                        {processandoFarmacia ? <Loader2 className="w-5 h-5 animate-spin" /> : <Bot className="w-5 h-5" />}
+                        {processandoFarmacia ? 'Robô injetando descontos...' : 'INICIAR LANÇAMENTO EM MASSA'}
+                      </button>
+                    </div>
+
+                  </div>
+                )}
+
               </div>
             </div>
           )}

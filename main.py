@@ -1,4 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks, UploadFile, File
+from fastapi import FastAPI, BackgroundTasks, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -417,9 +417,6 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
     except Exception as e:
         return {"sucesso": False, "erro": str(e)}
 
-# ==========================================
-# DASHBOARD TEMPO REAL (HORAS EXTRAS DINÂMICAS)
-# ==========================================
 @app.post("/api/dashboard_tempo_real")
 async def dashboard_tempo_real(arquivo_sap: UploadFile = File(...)):
     try:
@@ -429,7 +426,6 @@ async def dashboard_tempo_real(arquivo_sap: UploadFile = File(...)):
         horas_por_funcionario = {}
         current_norm = None
 
-        # 1. Extração rápida de horas extras do SAP
         for i, row in df_sap.iterrows():
             row_str = ' | '.join([str(x).strip() if pd.notna(x) else "" for x in row.values])
 
@@ -452,7 +448,6 @@ async def dashboard_tempo_real(arquivo_sap: UploadFile = File(...)):
                             minutos = (int(match.group(1)) * 60) + int(match.group(2))
                             horas_por_funcionario[current_norm] += minutos
 
-        # 2. Puxa os setores reais direto do cache local (rápido e sem limites de API)
         colabs = ler_do_banco("colaboradores") or []
         mapa_setores = {}
         for c in colabs:
@@ -468,7 +463,6 @@ async def dashboard_tempo_real(arquivo_sap: UploadFile = File(...)):
             if nome and nome != "Outros / Não Informado":
                 mapa_setores[normalizar_nome(nome)] = setor
 
-        # 3. Consolidação e agrupamento por setor real
         totais_por_setor = {}
         total_geral_minutos = 0
 
@@ -478,7 +472,6 @@ async def dashboard_tempo_real(arquivo_sap: UploadFile = File(...)):
                 setor = mapa_setores.get(nome, "Outros / Sem Setor")
                 totais_por_setor[setor] = totais_por_setor.get(setor, 0) + min_total
 
-        # 4. Formatação para o Front-end
         h_totais = total_geral_minutos // 60
         m_totais = total_geral_minutos % 60
 
@@ -521,6 +514,209 @@ def salvar_dados_folha(dados: DadosFolha):
         conn.close()
         return {"sucesso": True, "mensagem": f"{len(dados.lancamentos)} lançamentos salvos com sucesso no Banco de Dados!"}
     except Exception as e: return {"sucesso": False, "erro": str(e)}
+
+# ==========================================
+# PASSO 1: LER O PDF E DEVOLVER PARA REVISÃO (VALES)
+# ==========================================
+@app.post("/api/extrair_vales")
+async def extrair_vales(arquivo_pdf: UploadFile = File(...)):
+    try:
+        import pdfplumber
+        import io
+        
+        conteudo_pdf = await arquivo_pdf.read()
+        texto_pdf = ""
+        
+        with pdfplumber.open(io.BytesIO(conteudo_pdf)) as pdf:
+            for page in pdf.pages:
+                extract = page.extract_text()
+                if extract: texto_pdf += extract + "\n"
+
+        if not texto_pdf.strip():
+            return {"sucesso": False, "erro": "O PDF é uma IMAGEM ESCANEADA sem texto selecionável. Ative a opção 'PDF Pesquisável / OCR' no seu scanner."}
+
+        match_cliente = re.search(r'CLIENTE:\s*([^\n(]+)', texto_pdf, re.IGNORECASE)
+        match_valor = re.search(r'(?:R\$|\$)\s*(\d{1,3}(?:\.\d{3})*,\d{2})', texto_pdf)
+        match_parcelas = re.search(r'(?<!\d)(\d+)\s*[xX](?!\w)', texto_pdf)
+
+        if not match_cliente or not match_valor:
+            return {"sucesso": False, "erro": "Faltam informações de CLIENTE ou VALOR no documento."}
+
+        nome_cliente = normalizar_nome(match_cliente.group(1).strip())
+        valor_bruto_str = match_valor.group(1).strip()
+        valor_float = float(valor_bruto_str.replace('.', '').replace(',', '.'))
+        
+        qtd_parcelas = int(match_parcelas.group(1)) if match_parcelas else 1
+        if qtd_parcelas > 1:
+            valor_float = valor_float / qtd_parcelas
+
+        valor_final_str = f"{valor_float:.2f}".replace('.', ',')
+
+        return {
+            "sucesso": True,
+            "cliente_lido": nome_cliente,
+            "valor_calculado": valor_final_str,
+            "parcelas": qtd_parcelas,
+            "valor_original": valor_bruto_str
+        }
+
+    except Exception as e:
+        return {"sucesso": False, "erro": str(e)}
+
+# ==========================================
+# PASSO 2: INJETAR OS DADOS CONFIRMADOS NO EXCEL (VALES)
+# ==========================================
+@app.post("/api/injetar_vales")
+async def injetar_vales(
+    arquivo_escritorio: UploadFile = File(...),
+    cliente_nome: str = Form(...),
+    valor_desconto: str = Form(...)
+):
+    try:
+        conteudo_escritorio = await arquivo_escritorio.read()
+        wb = openpyxl.load_workbook(io.BytesIO(conteudo_escritorio))
+
+        inserido_com_sucesso = False
+        funcionario_encontrado = ""
+
+        for ws in wb.worksheets:
+            col_nome = col_vales = header_row = None
+            
+            for r in range(1, 15):
+                for c in range(1, ws.max_column + 1):
+                    val = str(ws.cell(row=r, column=c).value or "").strip().lower()
+                    if 'nome' in val and 'colaborador' in val: col_nome = c
+                    elif 'vales' in val: col_vales = c
+                if col_nome and col_vales:
+                    header_row = r
+                    break
+
+            if col_nome and col_vales and header_row:
+                for r in range(header_row + 1, ws.max_row + 1):
+                    nome_cell = ws.cell(row=r, column=col_nome).value
+                    if nome_cell:
+                        norm_excel = normalizar_nome(str(nome_cell))
+                        if normalizar_nome(cliente_nome) in norm_excel:
+                            ws.cell(row=r, column=col_vales).value = valor_desconto
+                            inserido_com_sucesso = True
+                            funcionario_encontrado = str(nome_cell)
+                            break
+
+        if not inserido_com_sucesso:
+            return {"sucesso": False, "erro": f"Cliente '{cliente_nome}' não foi encontrado na planilha base."}
+
+        saida_memoria = io.BytesIO()
+        wb.save(saida_memoria)
+        saida_memoria.seek(0)
+
+        return StreamingResponse(
+            saida_memoria,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": "attachment; filename=ESCRITORIO_VALES.xlsx", 
+                "Access-Control-Expose-Headers": "Content-Disposition, X-Funcionario-Nome",
+                "X-Funcionario-Nome": unicodedata.normalize('NFKD', funcionario_encontrado).encode('ASCII', 'ignore').decode('utf-8')
+            }
+        )
+    except Exception as e:
+        return {"sucesso": False, "erro": str(e)}
+
+# ==========================================
+# ROBÔ RPA - CONVÊNIO FARMÁCIA
+# ==========================================
+@app.post("/api/rpa_farmacia")
+async def rpa_farmacia(arquivo_extrato: UploadFile = File(...), arquivo_escritorio: UploadFile = File(...)):
+    try:
+        # Lê o HTML disfarçado de XLS
+        conteudo_extrato = await arquivo_extrato.read()
+        html_content = conteudo_extrato.decode('utf-8', errors='replace')
+        
+        # Faz o parse bruto com Regex
+        rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html_content, re.IGNORECASE | re.DOTALL)
+        dados_farmacia = {}
+        
+        for row in rows:
+            cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
+            # Limpa tags HTML
+            cleaned_cells = [re.sub(r'<[^>]+>', '', cell).strip().replace('&nbsp;', ' ') for cell in cells]
+            
+            # Se a linha tiver a estrutura de extrato (Nome, Cartão, Valor)
+            if len(cleaned_cells) >= 3:
+                nome = cleaned_cells[0]
+                valor_str = cleaned_cells[2]
+                valor_num = valor_str.replace('.', '').replace(',', '.')
+                
+                try:
+                    # Verifica se a terceira coluna é um número válido (ignora o cabeçalho)
+                    float(valor_num)
+                    if nome and len(nome) > 3 and "Total" not in nome and "Nome" not in nome:
+                        nome_norm = normalizar_nome(nome)
+                        dados_farmacia[nome_norm] = valor_str
+                except ValueError:
+                    pass
+        
+        if not dados_farmacia:
+            return {"sucesso": False, "erro": "Nenhum desconto financeiro foi encontrado no arquivo de extrato enviado."}
+
+        # 2. ABRIR E INJETAR NA PLANILHA DA CONTABILIDADE
+        conteudo_escritorio = await arquivo_escritorio.read()
+        wb = openpyxl.load_workbook(io.BytesIO(conteudo_escritorio))
+
+        processados = 0
+        nao_encontrados = []
+
+        for ws in wb.worksheets:
+            col_nome = col_farmacia = header_row = None
+            
+            for r in range(1, 15):
+                for c in range(1, ws.max_column + 1):
+                    val = str(ws.cell(row=r, column=c).value or "").strip().lower()
+                    if 'nome' in val and 'colaborador' in val: 
+                        col_nome = c
+                    elif 'farm' in val or 'convenio' in val or 'farmácia' in val or 'farmacia' in val: 
+                        col_farmacia = c
+                if col_nome and col_farmacia:
+                    header_row = r
+                    break
+
+            if col_nome and col_farmacia and header_row:
+                for r in range(header_row + 1, ws.max_row + 1):
+                    nome_cell = ws.cell(row=r, column=col_nome).value
+                    if nome_cell:
+                        norm_excel = normalizar_nome(str(nome_cell))
+                        
+                        for nome_farm, valor in dados_farmacia.items():
+                            if nome_farm in norm_excel or norm_excel in nome_farm:
+                                ws.cell(row=r, column=col_farmacia).value = valor
+                                processados += 1
+                                # Marca como encontrado
+                                dados_farmacia[nome_farm] = "ENCONTRADO"
+                                break
+
+        # Lista os colaboradores que estavam no arquivo de farmácia, mas não existem na planilha do contador
+        for nome_farm, status in dados_farmacia.items():
+            if status != "ENCONTRADO":
+                nao_encontrados.append(nome_farm)
+
+        saida_memoria = io.BytesIO()
+        wb.save(saida_memoria)
+        saida_memoria.seek(0)
+
+        erros_str = "|".join(nao_encontrados) if nao_encontrados else "Nenhum"
+        
+        return StreamingResponse(
+            saida_memoria,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": "attachment; filename=ESCRITORIO_FARMACIA.xlsx", 
+                "Access-Control-Expose-Headers": "Content-Disposition, X-Processados, X-Nao-Encontrados",
+                "X-Processados": str(processados),
+                "X-Nao-Encontrados": unicodedata.normalize('NFKD', erros_str).encode('ASCII', 'ignore').decode('utf-8')
+            }
+        )
+
+    except Exception as e:
+        return {"sucesso": False, "erro": str(e)}
 
 @app.get("/api/dashboard/kpis")
 def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
