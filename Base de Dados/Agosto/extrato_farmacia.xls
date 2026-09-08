@@ -1,0 +1,239 @@
+<html><body><form runat="server"><table cellpadding="0" cellspacing="0" width="600"><tr><td><div id="ctl00_cph_panel" style="overflow: auto">
+      <table width="600" cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td style="font-weight:bold;font-size:12pt;text-align:Center;" colspan="6">EXTRATO DE EMPRESA</td>
+	</tr>
+	<tr>
+		<td style="text-align:Right;" colspan="6">31/08/2026 17:08:34</td>
+	</tr>
+	<tr>
+		<td style="text-align:Left;" colspan="6">ADMINISTRADORA:&nbsp;TOTAL ADMINISTRADORA DE CONVENIOS</td>
+	</tr>
+	<tr>
+		<td style="text-align:Left;" colspan="6">EMPRESA:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7137&nbsp;* MOVEIS MANIA INDUSTRIA E COMERCIO LTDA</td>
+	</tr>
+</table>
+<br /><table width="600" cellspacing="0" style="font-family:Tahoma;font-size:9pt;">
+	<tr>
+		<td style="text-align:Right;">Chapa: </td>
+		<td style="text-align:Left;" colspan="2"></td>
+		<td style="text-align:Right;">N&#186; do Cart&#227;o: </td>
+		<td style="text-align:Left;" colspan="2"></td>
+	</tr>
+	<tr>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;">Nome do Titular: </td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" colspan="5"></td>
+	</tr>
+	<tr>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;">Grupo: </td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Left;" colspan="5">TODOS</td>
+	</tr>
+	<tr>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;">Status do Conveniado: </td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Left;" colspan="2">LIBERADOS</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;">Autoriza&#231;&#245;es: </td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Left;" colspan="2">TODAS</td>
+	</tr>
+	<tr>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;">Tipo do Extrato: </td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Left;" colspan="2">FECHAMENTO</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;">Fechamento/Per&#237;odo: </td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Left;" colspan="2">30/08/2026</td>
+	</tr>
+	<tr>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;">Exibir Autoriza&#231;&#245;es: </td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Left;" colspan="2">N&#195;O</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;">Exibir Produtos: </td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Left;" colspan="2">N&#195;O</td>
+	</tr>
+	<tr>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;">Incluir val. pagos: </td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Left;" colspan="2">N&#195;O</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;">Incluir saldos zer.: </td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Left;" colspan="2">N&#195;O</td>
+	</tr>
+	<tr>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;">Incluir assinatura: </td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Left;" colspan="2">N&#195;O</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;">Agrupar por grupo: </td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Left;" colspan="2">N&#195;O</td>
+	</tr>
+</table>
+<br /><table width="600" cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr style="background-color:#dcdcdc;font-weight:bold;">
+		<td colspan="3">Fechamento: 30/08/2026</td>
+		<td style="text-align:Right;" colspan="3">Vencimento:15/09/2026</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">ANA PAULA BARBOSA</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">4181279</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">110,92</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">ANDREA DA SILVA BARACHA</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">4140252</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">266,33</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">APARECIDA ANDREA CASTILHO</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">4181280</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">287,89</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">CICERO NETO ALVES RABELO</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">16</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">20,00</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">DAVID STUQUI</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">116</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">206,46</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">EMILY CRISTINA LIMA RODRIGUES</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">4181283</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">184,34</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">GABRIEL FELIPE DE ARAUJO DE MORAES BRAZ</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">31</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">42,01</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">GABRIELA EDWIRGES DA SILVA GONCALO</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">32</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">140,50</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">IRIS MERELE AMARO GOMES</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">40</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">258,87</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">JOSEANE MACHADO BARBOSA</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">51</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">153,83</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">KELY PATRICIA RIBEIRO DA SILVA</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">58</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">77,99</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">LEANDRO BENTO ROMUALDO DA SILVA</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">4181303</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">207,83</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">LEANDRO RAMOS</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">60</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">42,93</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">LUIZ FERNANDO DE OLIVEIRA</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">65</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">145,00</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">MARA IVANIRLY DOS SANTOS</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">68</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">60,20</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">MARCELA CRISTINA DA SILVA</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">69</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">180,28</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">MARCOS BIANCHI DA CUNHA </td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">4140250</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">299,35</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">MARIA GUILHERME DA SILVA</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">76</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">219,75</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">RAFAELA DA SILVA TEIXEIRA</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">86</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">74,99</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">RONILSON ALVES DE LIMA</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">92</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">95,94</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">ROSANA SEBASTIAO</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">93</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">86,13</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">SIMONE BORTOLI</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">4181288</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">42,64</td>
+	</tr>
+</table>
+<table cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td width="390" colspan="4" style="border-top:1px solid #DCDCDC;text-align:Left;">VICTOR HENRIQUE DALUIA</td>
+		<td style="mso-number-format:\@;border-top:1px solid #DCDCDC;text-align:Right;" width="140" colspan="1">4181301</td>
+		<td style="border-top:1px solid #DCDCDC;text-align:Right;" width="70" colspan="1">263,67</td>
+	</tr>
+</table>
+<table width="600" cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td style="text-align:Right;background-color:#dcdcdc;font-weight:bold;" colspan="6">Total do fechamento: 3467,85</td>
+	</tr>
+</table>
+<br /><br /><table width="600" cellspacing="0" style="font-family:Tahoma;font-size:10pt;">
+	<tr>
+		<td style="background-color:#dcdcdc;text-align:Right;font-weight:bold;" colspan="6">Total do Extrato: 3467,85</td>
+	</tr>
+</table>
+</div></td></tr></table></form></body></html>

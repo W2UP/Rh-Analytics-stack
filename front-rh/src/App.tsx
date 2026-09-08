@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { LayoutDashboard, Users, UserPlus, UserMinus, Activity, Stethoscope, AlertOctagon, Clock, Star, UsersRound, Download, TrendingDown, Lock, PieChart as PieChartIcon, DollarSign, Calendar, Gift, BellRing, AlertTriangle, Loader2, X, Briefcase, HeartPulse, Wallet, CalendarRange, Flame, Package, LockKeyhole, Unlock, Wrench, UploadCloud, RefreshCw, CheckCircle2, Bot, ShoppingCart, Pill } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, UserMinus, Activity, Stethoscope, AlertOctagon, Clock, Star, UsersRound, Download, TrendingDown, Lock, PieChart as PieChartIcon, DollarSign, Calendar, Gift, BellRing, AlertTriangle, Loader2, X, Briefcase, HeartPulse, Wallet, CalendarRange, Flame, Package, LockKeyhole, Unlock, Wrench, UploadCloud, RefreshCw, CheckCircle2, Bot, ShoppingCart, Pill, Award } from 'lucide-react';
 import html2canvas from 'html2canvas-pro';
 import { jsPDF } from 'jspdf';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, LabelList } from 'recharts';
@@ -27,7 +27,7 @@ export function App() {
   const [modal360, setModal360] = useState<string | null>(null);
 
   // ESTADOS DA TELA DE FOLHA
-  const [modoFolha, setModoFolha] = useState<'calculo' | 'rpa' | 'vales' | 'convocacao' | 'farmacia'>('calculo');
+  const [modoFolha, setModoFolha] = useState<'calculo' | 'rpa' | 'vales' | 'convocacao' | 'farmacia' | 'auditor' | 'bonus'>('calculo');
   
   const [processandoPonto, setProcessandoPonto] = useState(false);
   const [resultadoPonto, setResultadoPonto] = useState<any[]>([]);
@@ -35,31 +35,30 @@ export function App() {
   const [salvandoFolha, setSalvandoFolha] = useState(false);
   const [mensagemFolha, setMensagemFolha] = useState("");
 
-  // ESTADOS DA TELA DE RPA
   const [arquivoSapRpa, setArquivoSapRpa] = useState<File | null>(null);
   const [arquivoBaseRpa, setArquivoBaseRpa] = useState<File | null>(null);
   const [gerandoRpa, setGerandoRpa] = useState(false);
 
-  // ESTADOS DO DASHBOARD DE HORAS EXTRAS (TEMPO REAL)
   const [arquivoDashboard, setArquivoDashboard] = useState<File | null>(null);
   const [processandoDashboard, setProcessandoDashboard] = useState(false);
   const [dadosHorasExtras, setDadosHorasExtras] = useState<any>(null);
 
-  // ESTADOS DA AUDITORIA DE CONVOCAÇÃO
   const [arquivoPdfConvocacao, setArquivoPdfConvocacao] = useState<File | null>(null);
   const [processandoConvocacao, setProcessandoConvocacao] = useState(false);
   const [resultadoConvocacao, setResultadoConvocacao] = useState<any>(null);
 
-  // ESTADOS DO LANÇAMENTO DE VALES
   const [arquivoPdfVale, setArquivoPdfVale] = useState<File | null>(null);
   const [processandoVale, setProcessandoVale] = useState(false);
   const [dadosPreLista, setDadosPreLista] = useState<any>(null);
   const [nomeEditado, setNomeEditado] = useState("");
   const [valorEditado, setValorEditado] = useState("");
 
-  // ESTADOS DA FARMACIA
   const [arquivoExtratoFarmacia, setArquivoExtratoFarmacia] = useState<File | null>(null);
   const [processandoFarmacia, setProcessandoFarmacia] = useState(false);
+
+  const [arquivoPdfHolerite, setArquivoPdfHolerite] = useState<File | null>(null);
+  const [processandoAuditoria, setProcessandoAuditoria] = useState(false);
+  const [resultadoAuditoria, setResultadoAuditoria] = useState<any>(null);
 
   const [kpis, setKpis] = useState({
     funcionarios: "-", admissoes: "-", desligamentos: "-", turnover: "-", 
@@ -154,11 +153,15 @@ export function App() {
     try {
         const response = await fetch("http://127.0.0.1:8000/api/rpa_horas_extras", { method: "POST", body: formData });
         if (response.ok) {
-            const blob = await response.blob();
-            if (blob.type === "application/json") {
-                const errData = JSON.parse(await blob.text());
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.includes("application/json")) {
+                const errData = await response.json();
                 alert("❌ Erro no Servidor: " + errData.erro);
             } else {
+                const proc = response.headers.get("X-Processados") || "0";
+                const erros = response.headers.get("X-Nao-Encontrados") || "Nenhum";
+
+                const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
@@ -167,14 +170,65 @@ export function App() {
                 a.click();
                 a.remove();
                 window.URL.revokeObjectURL(url);
-                alert("✅ Sucesso! Planilha da Contabilidade preenchida e baixada com sucesso!");
+                
+                let msg = `✅ Sucesso! Foram lançados os dados de ${proc} colaboradores.`;
+                if (erros !== "Nenhum") {
+                    const listaErros = erros.split("|").join("\n- ");
+                    msg += `\n\n⚠️ ATENÇÃO: As seguintes pessoas tinham horas extras ou faltas no SAP, mas NÃO foram encontradas na planilha da contabilidade:\n- ${listaErros}\n\nEles podem ter sido desligados, ou o nome está diferente no Excel.`;
+                }
+                alert(msg);
             }
         } else { alert("❌ Falha de comunicação com o Robô RPA."); }
     } catch(e) { alert("❌ Erro técnico: " + e); } 
     finally { setGerandoRpa(false); }
   }
 
-  // FUNÇÃO DE TEMPO REAL PARA O DASHBOARD DE HORAS EXTRAS
+  const handleGerarRpaBonus = async () => {
+    if (!arquivoSapRpa || !arquivoBaseRpa) {
+      alert("Por favor, anexe o arquivo do SAP (.xls) e a Planilha de Bônus.");
+      return;
+    }
+    setGerandoRpa(true);
+    
+    const formData = new FormData();
+    formData.append("arquivo_sap", arquivoSapRpa);
+    formData.append("arquivo_planilha", arquivoBaseRpa);
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/rpa_bonus", { method: "POST", body: formData });
+      
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        const errData = await response.json();
+        alert("❌ " + errData.erro);
+      } else {
+        const proc = response.headers.get("X-Processados") || "0";
+        const erros = response.headers.get("X-Nao-Encontrados") || "Nenhum";
+        
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "BONUS_PROCESSADO.xlsx";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        
+        let msg = `✅ Sucesso! Os percentuais de desconto foram aplicados para ${proc} colaboradores.`;
+        if (erros !== "Nenhum") {
+            const listaErros = erros.split("|").join("\n- ");
+            msg += `\n\n⚠️ ATENÇÃO: As seguintes pessoas sofreram descontos de bônus no SAP, mas não foram encontradas na sua planilha:\n- ${listaErros}`;
+        }
+        alert(msg);
+      }
+    } catch(e) {
+      alert("❌ Erro técnico: " + e);
+    } finally {
+      setGerandoRpa(false);
+    }
+  };
+
   const handleAtualizarDashboardHoras = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -292,7 +346,7 @@ export function App() {
         window.URL.revokeObjectURL(url);
         
         alert(`✅ Sucesso! Lançado na linha exata de: ${funcNome}`);
-        setDadosPreLista(null); // Reseta a tela após sucesso
+        setDadosPreLista(null);
       }
     } catch(e) {
       alert("❌ Erro técnico: " + e);
@@ -344,6 +398,33 @@ export function App() {
       alert("❌ Erro técnico: " + e);
     } finally {
       setProcessandoFarmacia(false);
+    }
+  };
+
+  const handleAuditarFolha = async () => {
+    if (!arquivoPdfHolerite || !arquivoBaseRpa) {
+      alert("Anexe o PDF dos Holerites e a Planilha da Contabilidade.");
+      return;
+    }
+    setProcessandoAuditoria(true);
+    setResultadoAuditoria(null);
+    
+    const formData = new FormData();
+    formData.append("arquivo_pdf", arquivoPdfHolerite);
+    formData.append("arquivo_escritorio", arquivoBaseRpa);
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/auditar_folha", { method: "POST", body: formData });
+      const data = await response.json();
+      if (data.sucesso) {
+        setResultadoAuditoria(data);
+      } else {
+        alert("❌ Erro ao auditar: " + data.erro);
+      }
+    } catch(e) {
+      alert("❌ Erro técnico: " + e);
+    } finally {
+      setProcessandoAuditoria(false);
     }
   };
   
@@ -1125,6 +1206,9 @@ export function App() {
                   <button onClick={() => setModoFolha('rpa')} className={`whitespace-nowrap px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'rpa' ? 'bg-blue-600 text-white border-blue-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
                     <Bot className="w-5 h-5" /> Robô RPA (Contabilidade)
                   </button>
+                  <button onClick={() => setModoFolha('auditor')} className={`whitespace-nowrap px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'auditor' ? 'bg-red-600 text-white border-red-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
+                    <AlertOctagon className="w-5 h-5" /> Auditoria Contador vs Holerite
+                  </button>
                   <button onClick={() => setModoFolha('convocacao')} className={`whitespace-nowrap px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'convocacao' ? 'bg-purple-600 text-white border-purple-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
                     <CalendarRange className="w-5 h-5" /> Auditoria de Termos Extraordinários
                   </button>
@@ -1133,6 +1217,9 @@ export function App() {
                   </button>
                   <button onClick={() => setModoFolha('farmacia')} className={`whitespace-nowrap px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'farmacia' ? 'bg-pink-600 text-white border-pink-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
                     <Pill className="w-5 h-5" /> Convênio Farmácia
+                  </button>
+                  <button onClick={() => setModoFolha('bonus')} className={`whitespace-nowrap px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'bonus' ? 'bg-amber-500 text-white border-amber-400' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
+                    <Award className="w-5 h-5" /> Fechamento de Bônus
                   </button>
                 </div>
 
@@ -1264,6 +1351,105 @@ export function App() {
                       </button>
                     </div>
 
+                  </div>
+                )}
+
+                {/* ========================================= */}
+                {/* TELA 6: AUDITOR DE FOLHA (MÁXIMA SEGURANÇA)*/}
+                {/* ========================================= */}
+                {modoFolha === 'auditor' && (
+                  <div className="fade-in py-4">
+                    <div className="text-center flex flex-col items-center justify-center mb-10">
+                      <div className="w-16 h-16 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-6"><AlertOctagon className="w-8 h-8" /></div>
+                      <h2 className={`text-2xl font-bold ${textColor} mb-2`}>Auditoria Final: Planilha vs. Holerites</h2>
+                      <p className={`${textMuted} text-sm max-w-lg mx-auto`}>Antes de fechar a folha, anexe a <b>Planilha que você enviou</b> e o <b>PDF dos Holerites</b> que o contador retornou. O robô vai cruzar todos os DSRs e Faltas para garantir que nada foi lançado errado.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto mb-8">
+                      {/* CAIXA 1: PDF DOS HOLERITES */}
+                      <div className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center ${arquivoPdfHolerite ? 'border-red-500 bg-red-500/5' : 'border-slate-600 bg-[#1A1F2B] hover:border-red-500'}`}>
+                         <input type="file" accept=".pdf" onChange={(e) => setArquivoPdfHolerite(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                         {arquivoPdfHolerite ? (
+                           <>
+                             <CheckCircle2 className="w-8 h-8 text-red-500 mb-3" />
+                             <span className="text-red-400 font-bold text-sm text-center line-clamp-1">{arquivoPdfHolerite.name}</span>
+                           </>
+                         ) : (
+                           <>
+                             <UploadCloud className="w-8 h-8 text-slate-500 mb-3" />
+                             <span className="text-slate-300 font-bold text-sm text-center">1. PDF dos Holerites</span>
+                           </>
+                         )}
+                      </div>
+
+                      {/* CAIXA 2: PLANILHA ESCRITORIO */}
+                      <div className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center ${arquivoBaseRpa ? 'border-red-500 bg-red-500/5' : 'border-slate-600 bg-[#1A1F2B] hover:border-red-500'}`}>
+                         <input type="file" accept=".xls,.xlsx" onChange={(e) => setArquivoBaseRpa(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                         {arquivoBaseRpa ? (
+                           <>
+                             <CheckCircle2 className="w-8 h-8 text-red-500 mb-3" />
+                             <span className="text-red-400 font-bold text-sm text-center line-clamp-1">{arquivoBaseRpa.name}</span>
+                           </>
+                         ) : (
+                           <>
+                             <Briefcase className="w-8 h-8 text-slate-500 mb-3" />
+                             <span className="text-slate-300 font-bold text-sm text-center">2. Sua Planilha Base (.xlsx)</span>
+                           </>
+                         )}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-center mb-10">
+                      <button onClick={handleAuditarFolha} disabled={processandoAuditoria || !arquivoPdfHolerite || !arquivoBaseRpa} className={`px-8 py-4 rounded-xl font-bold text-sm transition-all shadow-lg flex items-center gap-3 ${processandoAuditoria ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : (!arquivoPdfHolerite || !arquivoBaseRpa) ? 'bg-[#232936] text-slate-500 cursor-not-allowed' : 'bg-red-600 hover:bg-red-500 text-white hover:shadow-red-500/20 hover:-translate-y-1'}`}>
+                        {processandoAuditoria ? <Loader2 className="w-5 h-5 animate-spin" /> : <Activity className="w-5 h-5" />}
+                        {processandoAuditoria ? 'Cruzando centenas de dados...' : 'INICIAR AUDITORIA DE FOLHA'}
+                      </button>
+                    </div>
+
+                    {/* RESULTADO DA AUDITORIA */}
+                    {resultadoAuditoria && (
+                      <div className="fade-in bg-[#1A1F2B] rounded-xl border border-white/10 p-6">
+                        <div className="flex justify-between items-center mb-6">
+                          <div>
+                            <h3 className="text-lg font-bold text-white">Relatório de Divergências</h3>
+                            <p className="text-slate-400 text-sm">Foram lidos {resultadoAuditoria.total_auditados} holerites.</p>
+                          </div>
+                        </div>
+                        
+                        {resultadoAuditoria.divergencias.length === 0 ? (
+                          <div className="bg-emerald-500/10 border border-emerald-500/30 p-6 rounded-xl text-center">
+                            <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
+                            <h4 className="text-emerald-400 font-bold text-lg">Folha 100% Sincronizada!</h4>
+                            <p className="text-emerald-500/70 text-sm mt-1">Nenhuma diferença de Faltas ou DSR entre a sua planilha e os holerites gerados pelo contador.</p>
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto rounded-xl border border-white/10">
+                            <table className="w-full text-left border-collapse">
+                              <thead>
+                                <tr className="bg-[#232936]">
+                                  <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Colaborador</th>
+                                  <th className="p-4 text-xs font-bold text-blue-400 uppercase tracking-wider border-b border-white/10">Faltas (Sua Planilha)</th>
+                                  <th className="p-4 text-xs font-bold text-blue-400 uppercase tracking-wider border-b border-white/10">DSR (Sua Planilha)</th>
+                                  <th className="p-4 text-xs font-bold text-orange-400 uppercase tracking-wider border-b border-white/10">Faltas (Holerite)</th>
+                                  <th className="p-4 text-xs font-bold text-orange-400 uppercase tracking-wider border-b border-white/10">DSR (Holerite)</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-white/5 bg-[#1A1F2B]">
+                                {resultadoAuditoria.divergencias.map((div: any, idx: number) => (
+                                  <tr key={idx} className="hover:bg-white/5 transition-colors">
+                                    <td className="p-4 font-bold text-white">{div.nome}</td>
+                                    <td className="p-4 font-bold text-blue-400">{div.faltas_escritorio}</td>
+                                    <td className="p-4 font-bold text-blue-400">{div.dsr_escritorio}</td>
+                                    <td className={`p-4 font-bold ${div.faltas_recibo !== div.faltas_escritorio ? 'text-red-500 underline' : 'text-orange-400'}`}>{div.faltas_recibo}</td>
+                                    <td className={`p-4 font-bold ${div.dsr_recibo !== div.dsr_escritorio ? 'text-red-500 underline' : 'text-orange-400'}`}>{div.dsr_recibo}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1441,7 +1627,7 @@ export function App() {
                 )}
 
                 {/* ========================================= */}
-                {/* TELA 5: CONVÊNIO FARMÁCIA (NOVA)          */}
+                {/* TELA 5: CONVÊNIO FARMÁCIA                 */}
                 {/* ========================================= */}
                 {modoFolha === 'farmacia' && (
                   <div className="fade-in py-4">
@@ -1493,6 +1679,65 @@ export function App() {
                       <button onClick={handleGerarRpaFarmacia} disabled={processandoFarmacia || !arquivoExtratoFarmacia || !arquivoBaseRpa} className={`px-8 py-4 rounded-xl font-bold text-sm transition-all shadow-lg flex items-center gap-3 ${processandoFarmacia ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : (!arquivoExtratoFarmacia || !arquivoBaseRpa) ? 'bg-[#232936] text-slate-500 cursor-not-allowed' : 'bg-pink-600 hover:bg-pink-500 text-white hover:shadow-pink-500/20 hover:-translate-y-1'}`}>
                         {processandoFarmacia ? <Loader2 className="w-5 h-5 animate-spin" /> : <Bot className="w-5 h-5" />}
                         {processandoFarmacia ? 'Robô injetando descontos...' : 'INICIAR LANÇAMENTO EM MASSA'}
+                      </button>
+                    </div>
+
+                  </div>
+                )}
+
+                {/* ========================================= */}
+                {/* TELA 7: FECHAMENTO DE BÔNUS (NOVA)        */}
+                {/* ========================================= */}
+                {modoFolha === 'bonus' && (
+                  <div className="fade-in py-4">
+                    <div className="text-center flex flex-col items-center justify-center mb-10">
+                      <div className="w-16 h-16 bg-amber-500/10 text-amber-500 rounded-full flex items-center justify-center mb-6"><Award className="w-8 h-8" /></div>
+                      <h2 className={`text-2xl font-bold ${textColor} mb-2`}>Robô RPA: Cálculo de Bônus</h2>
+                      <p className={`${textMuted} text-sm max-w-2xl mx-auto`}>Anexe o espelho original do <b>SAP</b> e a sua <b>Planilha de Bônus</b>. O sistema vai rastrear Faltas, Meio Períodos e Atestados, calcular o percentual exato de perda (25%, 50% ou 100%) e preencher automaticamente a coluna "Desconto (%)" justificando o motivo.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto mb-8">
+                      {/* CAIXA 1: SAP */}
+                      <div className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center ${arquivoSapRpa ? 'border-amber-500 bg-amber-500/5' : 'border-slate-600 bg-[#1A1F2B] hover:border-amber-500'}`}>
+                         <input type="file" accept=".xls,.xlsx" onChange={(e) => setArquivoSapRpa(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                         {arquivoSapRpa ? (
+                           <>
+                             <CheckCircle2 className="w-8 h-8 text-amber-500 mb-3" />
+                             <span className="text-amber-400 font-bold text-sm text-center line-clamp-1">{arquivoSapRpa.name}</span>
+                             <span className="text-slate-500 text-xs mt-1">Arquivo SAP pronto.</span>
+                           </>
+                         ) : (
+                           <>
+                             <UploadCloud className="w-8 h-8 text-slate-500 mb-3" />
+                             <span className="text-slate-300 font-bold text-sm text-center">1. Arquivo SAP (.xls)</span>
+                             <span className="text-slate-500 text-xs mt-1 text-center">De onde o robô vai puxar os atrasos e faltas</span>
+                           </>
+                         )}
+                      </div>
+
+                      {/* CAIXA 2: PLANILHA BONUS */}
+                      <div className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center ${arquivoBaseRpa ? 'border-amber-500 bg-amber-500/5' : 'border-slate-600 bg-[#1A1F2B] hover:border-amber-500'}`}>
+                         <input type="file" accept=".xls,.xlsx" onChange={(e) => setArquivoBaseRpa(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                         {arquivoBaseRpa ? (
+                           <>
+                             <CheckCircle2 className="w-8 h-8 text-amber-500 mb-3" />
+                             <span className="text-amber-400 font-bold text-sm text-center line-clamp-1">{arquivoBaseRpa.name}</span>
+                             <span className="text-slate-500 text-xs mt-1">Planilha de Bônus pronta.</span>
+                           </>
+                         ) : (
+                           <>
+                             <Briefcase className="w-8 h-8 text-slate-500 mb-3" />
+                             <span className="text-slate-300 font-bold text-sm text-center">2. Sua Planilha de Bônus (.xlsx)</span>
+                             <span className="text-slate-500 text-xs mt-1 text-center">A que tem a coluna "Desconto (%)" e "Motivo"</span>
+                           </>
+                         )}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-center">
+                      <button onClick={handleGerarRpaBonus} disabled={gerandoRpa || !arquivoSapRpa || !arquivoBaseRpa} className={`px-8 py-4 rounded-xl font-bold text-sm transition-all shadow-lg flex items-center gap-3 ${gerandoRpa ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : (!arquivoSapRpa || !arquivoBaseRpa) ? 'bg-[#232936] text-slate-500 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-500 text-white hover:shadow-amber-500/20 hover:-translate-y-1'}`}>
+                        {gerandoRpa ? <Loader2 className="w-5 h-5 animate-spin" /> : <Bot className="w-5 h-5" />}
+                        {gerandoRpa ? 'Calculando limites e injetando bônus...' : 'INICIAR CÁLCULO E BAIXAR PLANILHA'}
                       </button>
                     </div>
 

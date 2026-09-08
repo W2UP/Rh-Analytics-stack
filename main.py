@@ -43,6 +43,22 @@ DB_ARMARIOS = "3872051d7a6b80c2b69ceb5e4db649cb"
 
 DB_PATH = "banco_rh.db"
 
+CACHE_RELACOES = {}
+
+def carregar_cache_relacoes():
+    global CACHE_RELACOES
+    if not CACHE_RELACOES:
+        colabs = ler_do_banco("colaboradores") or []
+        for c in colabs:
+            page_id = c.get("id")
+            props = c.get("properties", {})
+            for k, v in props.items():
+                if v.get("type") == "title" and v.get("title"):
+                    nome = v.get("title")[0]["plain_text"]
+                    if page_id: CACHE_RELACOES[page_id] = nome
+                    break
+    return CACHE_RELACOES
+
 def formatar_setor(setor_nome):
     if not setor_nome or setor_nome == "Outros / Não Informado" or setor_nome == "-": return "Outros"
     s = str(setor_nome).strip().title()
@@ -113,26 +129,47 @@ def buscar_itens_notion(database_id, payload_filtro=None):
         except Exception: break
     return itens
 
-def extrair_texto(propriedades, nome_coluna):
+def extrair_valor_prop(prop):
     try:
-        if nome_coluna in propriedades:
-            prop = propriedades[nome_coluna]
-            if prop["type"] == "select" and prop.get("select"): return prop["select"]["name"]
-            if prop["type"] == "rich_text" and prop.get("rich_text"): return prop["rich_text"][0]["plain_text"]
-            if prop["type"] == "rollup" and prop.get("rollup"):
-                arr = prop["rollup"].get("array", [])
-                if arr and arr[0].get("title"): return arr[0]["title"][0]["plain_text"]
-                if arr and arr[0].get("rich_text"): return arr[0]["rich_text"][0]["plain_text"]
-                if arr and arr[0].get("select"): return arr[0]["select"]["name"]
-            if prop["type"] == "title" and prop.get("title"): return prop["title"][0]["plain_text"]
-            if prop["type"] == "number" and prop.get("number") is not None: return str(prop["number"])
-            if prop["type"] == "date" and prop.get("date"): return prop["date"]["start"]
+        if prop["type"] == "select" and prop.get("select"): return prop["select"]["name"]
+        if prop["type"] == "status" and prop.get("status"): return prop["status"]["name"]
+        if prop["type"] == "rich_text" and prop.get("rich_text"): return prop["rich_text"][0]["plain_text"]
+        if prop["type"] == "rollup" and prop.get("rollup"):
+            arr = prop["rollup"].get("array", [])
+            if arr:
+                if arr[0].get("title"): return arr[0]["title"][0]["plain_text"]
+                if arr[0].get("rich_text"): return arr[0]["rich_text"][0]["plain_text"]
+                if arr[0].get("select"): return arr[0]["select"]["name"]
+        if prop["type"] == "title" and prop.get("title"): return prop["title"][0]["plain_text"]
+        if prop["type"] == "number" and prop.get("number") is not None: return str(prop["number"])
+        if prop["type"] == "date" and prop.get("date"): return prop["date"]["start"]
+        if prop["type"] == "relation" and prop.get("relation"):
+            rel_id = prop["relation"][0]["id"]
+            cache = carregar_cache_relacoes()
+            if rel_id in cache: return cache[rel_id]
     except: pass
     return "Outros / Não Informado"
 
+def extrair_texto(propriedades, nome_coluna):
+    if nome_coluna in propriedades: return extrair_valor_prop(propriedades[nome_coluna])
+    for k, v in propriedades.items():
+        if nome_coluna.lower() in k.lower(): return extrair_valor_prop(v)
+    return "Outros / Não Informado"
+
+def get_nome_correto(props, is_atestado=False):
+    nome = extrair_texto(props, "funcion")
+    if nome == "Outros / Não Informado": nome = extrair_texto(props, "nome")
+    if nome == "Outros / Não Informado": nome = extrair_texto(props, "colab")
+    if nome == "Outros / Não Informado" or not str(nome).strip():
+        for k, v in props.items():
+            if v.get("type") == "title" and v.get("title"):
+                nome_bruto = v["title"][0]["plain_text"]
+                nome = re.split(r'[-–—]', nome_bruto)[0].strip()
+                break
+    return nome if nome else "Outros / Não Informado"
+
 def normalizar_nome(nome):
-    if not nome or nome == "Outros / Não Informado": 
-        return ""
+    if not nome or nome == "Outros / Não Informado": return ""
     n = str(nome).strip().upper()
     n = unicodedata.normalize('NFKD', n).encode('ASCII', 'ignore').decode('utf-8')
     palavras = n.split()
@@ -158,6 +195,8 @@ def sincronizar_tudo():
 
 @app.get("/api/sincronizar")
 def endpoint_sincronizar(background_tasks: BackgroundTasks):
+    global CACHE_RELACOES
+    CACHE_RELACOES.clear() 
     background_tasks.add_task(sincronizar_tudo)
     return {"sucesso": True, "mensagem": "Sincronização iniciada."}
 
@@ -171,13 +210,7 @@ async def processar_arquivo_ponto(arquivo: UploadFile = File(...)):
         dict_salarios = {}
         for c in colabs:
             props = c.get("properties", {})
-            nome = extrair_texto(props, "Funcionário")
-            if nome == "Outros / Não Informado": nome = extrair_texto(props, "Nome")
-            if nome == "Outros / Não Informado":
-                for k, v in props.items():
-                    if v.get("type") == "title" and v.get("title"):
-                        nome = v["title"][0]["plain_text"]
-                        break
+            nome = get_nome_correto(props)
             sal_str = extrair_texto(props, "Salário (R$)")
             salario = 0.0
             try: salario = float(sal_str)
@@ -333,7 +366,6 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
                         if j < len(row.values) and pd.notna(row.values[j]) and str(row.values[j]).strip() != "":
                             vals.append(str(row.values[j]).strip().upper())
                     fc = sum(1 for v in vals if 'FALTA' in v)
-                    
                     if fc >= 3: 
                         faltas_dias_atual += 1.0
                         teve_falta_integral_na_semana = True
@@ -368,12 +400,18 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
             dados_sap[current_norm]["faltas_dias"] = faltas_dias_atual
             dados_sap[current_norm]["dsr_perdidos"] = dsr_perdidos_atual
 
+        dados_ativos = {}
+        for nome, info in dados_sap.items():
+            if info["he_50"] or info["he_100"] or info["adc_noturno"] or info["faltas_dias"] > 0:
+                info["encontrado"] = False
+                dados_ativos[nome] = info
+
         conteudo_escritorio = await arquivo_escritorio.read()
         wb = openpyxl.load_workbook(io.BytesIO(conteudo_escritorio))
+        processados = 0
 
         for ws in wb.worksheets:
             col_nome = col_he50 = col_he100 = col_noturno = col_faltas_dsr = header_row = None
-            
             for r in range(1, 15):
                 for c in range(1, ws.max_column + 1):
                     val = str(ws.cell(row=r, column=c).value or "").strip().lower()
@@ -391,9 +429,17 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
                     nome_cell = ws.cell(row=r, column=col_nome).value
                     if nome_cell:
                         norm_excel = normalizar_nome(str(nome_cell))
-                        if norm_excel in dados_sap:
-                            info = dados_sap[norm_excel]
-                            
+                        nome_encontrado_dict = None
+                        if norm_excel in dados_ativos:
+                            nome_encontrado_dict = norm_excel
+                        else:
+                            for nome_ativo in dados_ativos.keys():
+                                if nome_ativo in norm_excel or norm_excel in nome_ativo:
+                                    nome_encontrado_dict = nome_ativo
+                                    break
+                                    
+                        if nome_encontrado_dict:
+                            info = dados_ativos[nome_encontrado_dict]
                             if info["he_50"] and col_he50: ws.cell(row=r, column=col_he50).value = info["he_50"]
                             if info["he_100"] and col_he100: ws.cell(row=r, column=col_he100).value = info["he_100"]
                             if info.get("adc_noturno") and col_noturno: ws.cell(row=r, column=col_noturno).value = info["adc_noturno"]
@@ -404,6 +450,13 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
                                 f_str = str(int(qtd_f)) if qtd_f.is_integer() else str(qtd_f)
                                 d_str = str(int(qtd_dsr))
                                 ws.cell(row=r, column=col_faltas_dsr).value = f"{f_str}+{d_str}dsr"
+                            
+                            if not info["encontrado"]:
+                                info["encontrado"] = True
+                                processados += 1
+
+        nao_encontrados = [nome for nome, info in dados_ativos.items() if not info["encontrado"]]
+        erros_str = "|".join(nao_encontrados) if nao_encontrados else "Nenhum"
 
         saida_memoria = io.BytesIO()
         wb.save(saida_memoria)
@@ -412,8 +465,143 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
         return StreamingResponse(
             saida_memoria,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": "attachment; filename=ESCRITORIO_PRONTO.xlsx", "Access-Control-Expose-Headers": "Content-Disposition"}
+            headers={
+                "Content-Disposition": "attachment; filename=ESCRITORIO_PRONTO.xlsx", 
+                "Access-Control-Expose-Headers": "Content-Disposition, X-Processados, X-Nao-Encontrados",
+                "X-Processados": str(processados),
+                "X-Nao-Encontrados": unicodedata.normalize('NFKD', erros_str).encode('ASCII', 'ignore').decode('utf-8')
+            }
         )
+    except Exception as e:
+        return {"sucesso": False, "erro": str(e)}
+
+# ==========================================
+# NOVO: ROBÔ RPA - CÁLCULO DE BÔNUS (SAP -> PLANILHA DE BÔNUS)
+# ==========================================
+@app.post("/api/rpa_bonus")
+async def rpa_bonus(arquivo_sap: UploadFile = File(...), arquivo_planilha: UploadFile = File(...)):
+    try:
+        from collections import Counter
+        conteudo_sap = await arquivo_sap.read()
+        df_sap = pd.read_excel(io.BytesIO(conteudo_sap), header=None, engine='xlrd')
+
+        dados_bonus = {}
+        current_norm = None
+
+        # 1. VARRER O SAP PARA COLETAR AS FALTAS E ATESTADOS DE ACORDO COM A REGRA DE BÔNUS
+        for i, row in df_sap.iterrows():
+            row_str = ' | '.join([str(x).strip() if pd.notna(x) else "" for x in row.values])
+            
+            if 'Funcionário' in row_str and ':' in row_str:
+                parts = row_str.split(':')
+                if len(parts) > 1:
+                    emp_parts = parts[1].replace('|', '').strip().split(' ', 1)
+                    if len(emp_parts) == 2:
+                        current_norm = normalizar_nome(emp_parts[1])
+                        if current_norm not in dados_bonus:
+                            dados_bonus[current_norm] = {"desconto": 0.0, "motivos": []}
+                    else:
+                        current_norm = None
+                        
+            if current_norm:
+                vals = []
+                for j in [4, 5, 6, 7]: # Colunas de entrada e saída
+                    if j < len(row.values) and pd.notna(row.values[j]) and str(row.values[j]).strip() != "":
+                        vals.append(str(row.values[j]).strip().upper())
+                
+                # Contabiliza quantas marcações daquele tipo houveram no dia
+                fc = sum(1 for v in vals if 'FALTA' in v)
+                mc = sum(1 for v in vals if 'MEDIC' in v or 'ATEST' in v)
+                
+                # Regras de Negócio (Descontos)
+                if fc >= 3:
+                    dados_bonus[current_norm]["desconto"] += 1.0 # 100% de desconto
+                    dados_bonus[current_norm]["motivos"].append("Falta Integral (100%)")
+                elif 0 < fc <= 2:
+                    dados_bonus[current_norm]["desconto"] += 0.25 # 25% de desconto
+                    dados_bonus[current_norm]["motivos"].append("Meio Período Falta (25%)")
+                    
+                if mc >= 3:
+                    dados_bonus[current_norm]["desconto"] += 0.50 # 50% de desconto
+                    dados_bonus[current_norm]["motivos"].append("Atestado (50%)")
+                elif 0 < mc <= 2:
+                    dados_bonus[current_norm]["desconto"] += 0.25 # 25% de desconto
+                    dados_bonus[current_norm]["motivos"].append("Meio Período Atestado (25%)")
+
+        # 2. INJETAR OS DESCONTOS NA PLANILHA DE BÔNUS
+        conteudo_bonus = await arquivo_planilha.read()
+        wb = openpyxl.load_workbook(io.BytesIO(conteudo_bonus))
+        processados = 0
+
+        for ws in wb.worksheets:
+            col_nome = col_desconto = col_motivo = header_row = None
+            
+            # Buscar onde começam os cabeçalhos na planilha
+            for r in range(1, 25):
+                for c in range(1, ws.max_column + 1):
+                    val = str(ws.cell(row=r, column=c).value or "").strip().lower()
+                    if 'nome' in val and 'colaborador' in val: col_nome = c
+                    elif 'desconto' in val and '%' in val: col_desconto = c
+                    elif 'motivo' in val: col_motivo = c
+                
+                if col_nome and col_desconto:
+                    header_row = r
+                    break
+
+            if col_nome and col_desconto and header_row:
+                for r in range(header_row + 1, ws.max_row + 1):
+                    nome_cell = ws.cell(row=r, column=col_nome).value
+                    if nome_cell:
+                        norm_excel = normalizar_nome(str(nome_cell))
+                        
+                        nome_encontrado_dict = None
+                        if norm_excel in dados_bonus:
+                            nome_encontrado_dict = norm_excel
+                        else:
+                            for nome_ativo in dados_bonus.keys():
+                                if nome_ativo in norm_excel or norm_excel in nome_ativo:
+                                    nome_encontrado_dict = nome_ativo
+                                    break
+                        
+                        if nome_encontrado_dict:
+                            info = dados_bonus[nome_encontrado_dict]
+                            
+                            if info["desconto"] > 0:
+                                # Trava o desconto em 100% (Evita bônus negativo)
+                                desc_final = min(1.0, info["desconto"])
+                                
+                                # Agrupa motivos iguais. Ex: "2x Atestado (50%) + Falta Integral (100%)"
+                                contagem = Counter(info["motivos"])
+                                motivos_str = " + ".join([f"{qtd}x {m}" if qtd > 1 else m for m, qtd in contagem.items()])
+                                
+                                # Injeta na planilha
+                                ws.cell(row=r, column=col_desconto).value = desc_final
+                                if col_motivo:
+                                    ws.cell(row=r, column=col_motivo).value = motivos_str
+                                
+                                processados += 1
+                                # Remove do dicionário para rastrear depois quem faltou ser inserido
+                                del dados_bonus[nome_encontrado_dict]
+
+        # Descobre quem teve desconto de bônus mas não está na planilha
+        nao_encontrados = [nome for nome, info in dados_bonus.items() if info["desconto"] > 0]
+        erros_str = "|".join(nao_encontrados) if nao_encontrados else "Nenhum"
+
+        saida_memoria = io.BytesIO()
+        wb.save(saida_memoria)
+        saida_memoria.seek(0)
+
+        return StreamingResponse(
+            saida_memoria,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": "attachment; filename=BONUS_PROCESSADO.xlsx", 
+                "Access-Control-Expose-Headers": "Content-Disposition, X-Processados, X-Nao-Encontrados",
+                "X-Processados": str(processados),
+                "X-Nao-Encontrados": unicodedata.normalize('NFKD', erros_str).encode('ASCII', 'ignore').decode('utf-8')
+            }
+        )
+
     except Exception as e:
         return {"sucesso": False, "erro": str(e)}
 
@@ -452,13 +640,7 @@ async def dashboard_tempo_real(arquivo_sap: UploadFile = File(...)):
         mapa_setores = {}
         for c in colabs:
             props = c.get("properties", {})
-            nome = extrair_texto(props, "Funcionário")
-            if nome == "Outros / Não Informado": nome = extrair_texto(props, "Nome")
-            if nome == "Outros / Não Informado":
-                for k, v in props.items():
-                    if v.get("type") == "title" and v.get("title"):
-                        nome = v["title"][0]["plain_text"]
-                        break
+            nome = get_nome_correto(props)
             setor = formatar_setor(extrair_texto(props, "Setor"))
             if nome and nome != "Outros / Não Informado":
                 mapa_setores[normalizar_nome(nome)] = setor
@@ -515,9 +697,6 @@ def salvar_dados_folha(dados: DadosFolha):
         return {"sucesso": True, "mensagem": f"{len(dados.lancamentos)} lançamentos salvos com sucesso no Banco de Dados!"}
     except Exception as e: return {"sucesso": False, "erro": str(e)}
 
-# ==========================================
-# PASSO 1: LER O PDF E DEVOLVER PARA REVISÃO (VALES)
-# ==========================================
 @app.post("/api/extrair_vales")
 async def extrair_vales(arquivo_pdf: UploadFile = File(...)):
     try:
@@ -563,9 +742,6 @@ async def extrair_vales(arquivo_pdf: UploadFile = File(...)):
     except Exception as e:
         return {"sucesso": False, "erro": str(e)}
 
-# ==========================================
-# PASSO 2: INJETAR OS DADOS CONFIRMADOS NO EXCEL (VALES)
-# ==========================================
 @app.post("/api/injetar_vales")
 async def injetar_vales(
     arquivo_escritorio: UploadFile = File(...),
@@ -581,7 +757,6 @@ async def injetar_vales(
 
         for ws in wb.worksheets:
             col_nome = col_vales = header_row = None
-            
             for r in range(1, 15):
                 for c in range(1, ws.max_column + 1):
                     val = str(ws.cell(row=r, column=c).value or "").strip().lower()
@@ -621,33 +796,24 @@ async def injetar_vales(
     except Exception as e:
         return {"sucesso": False, "erro": str(e)}
 
-# ==========================================
-# ROBÔ RPA - CONVÊNIO FARMÁCIA
-# ==========================================
 @app.post("/api/rpa_farmacia")
 async def rpa_farmacia(arquivo_extrato: UploadFile = File(...), arquivo_escritorio: UploadFile = File(...)):
     try:
-        # Lê o HTML disfarçado de XLS
         conteudo_extrato = await arquivo_extrato.read()
         html_content = conteudo_extrato.decode('utf-8', errors='replace')
         
-        # Faz o parse bruto com Regex
         rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html_content, re.IGNORECASE | re.DOTALL)
         dados_farmacia = {}
         
         for row in rows:
             cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
-            # Limpa tags HTML
             cleaned_cells = [re.sub(r'<[^>]+>', '', cell).strip().replace('&nbsp;', ' ') for cell in cells]
             
-            # Se a linha tiver a estrutura de extrato (Nome, Cartão, Valor)
             if len(cleaned_cells) >= 3:
                 nome = cleaned_cells[0]
                 valor_str = cleaned_cells[2]
                 valor_num = valor_str.replace('.', '').replace(',', '.')
-                
                 try:
-                    # Verifica se a terceira coluna é um número válido (ignora o cabeçalho)
                     float(valor_num)
                     if nome and len(nome) > 3 and "Total" not in nome and "Nome" not in nome:
                         nome_norm = normalizar_nome(nome)
@@ -658,16 +824,13 @@ async def rpa_farmacia(arquivo_extrato: UploadFile = File(...), arquivo_escritor
         if not dados_farmacia:
             return {"sucesso": False, "erro": "Nenhum desconto financeiro foi encontrado no arquivo de extrato enviado."}
 
-        # 2. ABRIR E INJETAR NA PLANILHA DA CONTABILIDADE
         conteudo_escritorio = await arquivo_escritorio.read()
         wb = openpyxl.load_workbook(io.BytesIO(conteudo_escritorio))
-
         processados = 0
         nao_encontrados = []
 
         for ws in wb.worksheets:
             col_nome = col_farmacia = header_row = None
-            
             for r in range(1, 15):
                 for c in range(1, ws.max_column + 1):
                     val = str(ws.cell(row=r, column=c).value or "").strip().lower()
@@ -684,16 +847,13 @@ async def rpa_farmacia(arquivo_extrato: UploadFile = File(...), arquivo_escritor
                     nome_cell = ws.cell(row=r, column=col_nome).value
                     if nome_cell:
                         norm_excel = normalizar_nome(str(nome_cell))
-                        
                         for nome_farm, valor in dados_farmacia.items():
                             if nome_farm in norm_excel or norm_excel in nome_farm:
                                 ws.cell(row=r, column=col_farmacia).value = valor
                                 processados += 1
-                                # Marca como encontrado
                                 dados_farmacia[nome_farm] = "ENCONTRADO"
                                 break
 
-        # Lista os colaboradores que estavam no arquivo de farmácia, mas não existem na planilha do contador
         for nome_farm, status in dados_farmacia.items():
             if status != "ENCONTRADO":
                 nao_encontrados.append(nome_farm)
@@ -718,6 +878,110 @@ async def rpa_farmacia(arquivo_extrato: UploadFile = File(...), arquivo_escritor
     except Exception as e:
         return {"sucesso": False, "erro": str(e)}
 
+@app.post("/api/auditar_folha")
+async def auditar_folha(arquivo_pdf: UploadFile = File(...), arquivo_escritorio: UploadFile = File(...)):
+    try:
+        import pdfplumber
+        
+        conteudo_escritorio = await arquivo_escritorio.read()
+        df_escritorio = pd.read_excel(io.BytesIO(conteudo_escritorio), sheet_name=0)
+
+        col_nome_escritorio = None
+        col_faltas_dsr = None
+
+        for col in df_escritorio.columns:
+            if 'nome' in str(col).lower() or 'colaborador' in str(col).lower():
+                col_nome_escritorio = col
+            if 'faltas' in str(col).lower() and 'dsr' in str(col).lower():
+                col_faltas_dsr = col
+
+        dados_escritorio = {}
+        if col_nome_escritorio and col_faltas_dsr:
+            for index, row in df_escritorio.iterrows():
+                nome = row[col_nome_escritorio]
+                faltas_dsr = row[col_faltas_dsr]
+                if pd.notna(nome):
+                    norm_name = normalizar_nome(nome)
+                    if pd.isna(faltas_dsr):
+                        dados_escritorio[norm_name] = {'faltas': 0.0, 'dsr': 0}
+                    else:
+                        s = str(faltas_dsr).lower().replace('dsr', '').strip()
+                        parts = s.split('+')
+                        try:
+                            f = float(parts[0]) if len(parts) > 0 else 0.0
+                            d = int(parts[1]) if len(parts) > 1 else 0
+                            dados_escritorio[norm_name] = {'faltas': f, 'dsr': d}
+                        except:
+                            dados_escritorio[norm_name] = {'faltas': 0.0, 'dsr': 0}
+
+        conteudo_pdf = await arquivo_pdf.read()
+        texto_pdf = ""
+        with pdfplumber.open(io.BytesIO(conteudo_pdf)) as pdf:
+            for page in pdf.pages:
+                ext = page.extract_text()
+                if ext: texto_pdf += ext + "\n"
+
+        recibos_texto = re.split(r'Total Liquido -->|Total Liquido ->', texto_pdf)
+        dados_recibo = {}
+
+        for rt in recibos_texto:
+            nome_match = re.search(r'\d{4}\s+([A-ZÇÃÁÉÍÓÚÊ\s]+?)\n', rt)
+            if not nome_match:
+                 nome_match = re.search(r'\d{4}\s+([A-ZÇÃÁÉÍÓÚÊ\s]{5,})', rt)
+                 
+            if nome_match:
+                nome_cru = nome_match.group(1).strip()
+                nome_cru = re.sub(r'LIDER.*|AUXILIAR.*|FAXINEIRA.*|MOTORISTA.*|ENCARREGADO.*|SUPERVISOR.*|ANALISTA.*|ASSISTENTE.*|\d.*', '', nome_cru)
+                nome_norm = normalizar_nome(nome_cru.strip())
+                
+                if len(nome_norm) > 5:
+                    faltas = 0.0
+                    dsr = 0
+                    
+                    faltas_match = re.search(r'39[\s\n]*Faltas.*?([\d,]+)', rt, re.IGNORECASE | re.DOTALL)
+                    if faltas_match:
+                        try: faltas = float(faltas_match.group(1).replace(',', '.'))
+                        except: pass
+                            
+                    dsr_match = re.search(r'103[\s\n]*Faltas\s*DSR.*?([\d,]+)', rt, re.IGNORECASE | re.DOTALL)
+                    if dsr_match:
+                        try: dsr = int(float(dsr_match.group(1).replace(',', '.')))
+                        except: pass
+                            
+                    if nome_norm in dados_recibo:
+                        dados_recibo[nome_norm]['faltas'] = max(faltas, dados_recibo[nome_norm]['faltas'])
+                        dados_recibo[nome_norm]['dsr'] = max(dsr, dados_recibo[nome_norm]['dsr'])
+                    else:
+                        dados_recibo[nome_norm] = {'faltas': faltas, 'dsr': dsr}
+
+        divergencias = []
+        for nome_recibo, vals_recibo in dados_recibo.items():
+            encontrado = False
+            for nome_esc, vals_esc in dados_escritorio.items():
+                if nome_recibo in nome_esc or nome_esc in nome_recibo:
+                    encontrado = True
+                    if vals_recibo['faltas'] != vals_esc['faltas'] or vals_recibo['dsr'] != vals_esc['dsr']:
+                        divergencias.append({
+                            'nome': nome_recibo,
+                            'faltas_escritorio': vals_esc['faltas'],
+                            'dsr_escritorio': vals_esc['dsr'],
+                            'faltas_recibo': vals_recibo['faltas'],
+                            'dsr_recibo': vals_recibo['dsr']
+                        })
+                    break
+                    
+        return {
+            "sucesso": True,
+            "total_auditados": len(dados_recibo),
+            "divergencias": divergencias
+        }
+
+    except Exception as e:
+        return {"sucesso": False, "erro": str(e)}
+
+# ==========================================
+# PAINEL GERAL DE INDICADORES (KPIS)
+# ==========================================
 @app.get("/api/dashboard/kpis")
 def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     hoje = datetime.now()
@@ -741,61 +1005,57 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     avaliacoes_itens = ler_do_banco("desempenho") or []
     armarios_itens = ler_do_banco("armarios") or []
 
-    ativos_itens = [i for i in todos_colab if extrair_texto(i.get("properties", {}), "Status") == "Ativo"]
-    admissoes_itens = [i for i in todos_colab if inicio_mes_civil <= extrair_texto(i.get("properties", {}), "Data de admissão")[:10] <= fim_mes_civil]
+    vistos_ativos = set()
+    ativos_itens = []
+    for item in todos_colab:
+        props = item.get("properties", {})
+        status = extrair_texto(props, "status")
+        if status.lower() == "ativo":
+            n = normalizar_nome(get_nome_correto(props))
+            if n not in vistos_ativos:
+                vistos_ativos.add(n)
+                ativos_itens.append(item)
+                
+    setores_atuais = {normalizar_nome(get_nome_correto(i.get("properties", {}))): formatar_setor(extrair_texto(i.get("properties", {}), "setor")) for i in ativos_itens}
+
+    admissoes_itens = [i for i in ativos_itens if inicio_mes_civil <= extrair_texto(i.get("properties", {}), "data")[:10] <= fim_mes_civil]
     
     avaliacoes_filtradas = []
     for item in avaliacoes_itens:
         props = item.get("properties", {})
-        dt_aval = extrair_texto(props, "Data da Avaliação")
-        if dt_aval == "Outros / Não Informado": dt_aval = extrair_texto(props, "Data")
-        if dt_aval != "Outros / Não Informado" and inicio_mes_civil <= dt_aval[:10] <= fim_mes_civil: avaliacoes_filtradas.append(item)
+        dt_aval = extrair_texto(props, "data")
+        if dt_aval != "Outros / Não Informado" and len(dt_aval) >= 10 and inicio_mes_civil <= dt_aval[:10] <= fim_mes_civil: 
+            avaliacoes_filtradas.append(item)
     avaliacoes_itens = avaliacoes_filtradas
     
-    desligamentos_itens = [i for i in todos_deslig if inicio_mes_fiscal <= extrair_texto(i.get("properties", {}), "Data de Desligamento")[:10] <= fim_mes_fiscal]
-    desligamentos_ano = [i for i in todos_deslig if extrair_texto(i.get("properties", {}), "Data de Desligamento")[:4] == str(ano_int)]
-    atestados_itens = [i for i in todos_atestados if inicio_mes_fiscal <= extrair_texto(i.get("properties", {}), "Data de Entrega")[:10] <= fim_mes_fiscal]
-    advertencias_itens = [i for i in todos_adv if inicio_mes_fiscal <= extrair_texto(i.get("properties", {}), "Data da Advertência")[:10] <= fim_mes_fiscal]
+    desligamentos_itens = [i for i in todos_deslig if inicio_mes_fiscal <= extrair_texto(i.get("properties", {}), "data")[:10] <= fim_mes_fiscal]
+    desligamentos_ano = [i for i in todos_deslig if extrair_texto(i.get("properties", {}), "data")[:4] == str(ano_int)]
+    atestados_itens = [i for i in todos_atestados if inicio_mes_fiscal <= extrair_texto(i.get("properties", {}), "data")[:10] <= fim_mes_fiscal]
+    
+    advertencias_itens = []
+    for item in todos_adv:
+        props = item.get("properties", {})
+        dt = extrair_texto(props, "data")
+        if dt != "Outros / Não Informado" and len(dt) >= 10:
+            if inicio_mes_fiscal <= dt[:10] <= fim_mes_fiscal:
+                advertencias_itens.append(item)
 
-    setores_unicos = set([formatar_setor(extrair_texto(i.get("properties", {}), "Setor")) for i in ativos_itens])
+    setores_unicos = set([formatar_setor(extrair_texto(i.get("properties", {}), "setor")) for i in ativos_itens])
     if "Uchoa" in setores_unicos: setores_unicos.remove("Uchoa")
     lista_setores = sorted(list(setores_unicos))
 
     if setor != "Todos":
-        ativos_itens = [i for i in ativos_itens if formatar_setor(extrair_texto(i.get("properties", {}), "Setor")) == setor]
-        admissoes_itens = [i for i in admissoes_itens if formatar_setor(extrair_texto(i.get("properties", {}), "Setor")) == setor]
-        desligamentos_itens = [i for i in desligamentos_itens if formatar_setor(extrair_texto(i.get("properties", {}), "Setor")) == setor]
-        atestados_itens = [i for i in atestados_itens if formatar_setor(extrair_texto(i.get("properties", {}), "Setor")) == setor]
-        advertencias_itens = [i for i in advertencias_itens if formatar_setor(extrair_texto(i.get("properties", {}), "Setor")) == setor]
-        desligamentos_ano = [i for i in desligamentos_ano if formatar_setor(extrair_texto(i.get("properties", {}), "Setor")) == setor]
-        avaliacoes_itens = [i for i in avaliacoes_itens if formatar_setor(extrair_texto(i.get("properties", {}), "Setor")) == setor]
-        armarios_itens = [i for i in armarios_itens if formatar_setor(extrair_texto(i.get("properties", {}), "Setor")) == setor]
+        ativos_itens = [i for i in ativos_itens if formatar_setor(extrair_texto(i.get("properties", {}), "setor")) == setor]
+        admissoes_itens = [i for i in admissoes_itens if formatar_setor(extrair_texto(i.get("properties", {}), "setor")) == setor]
+        desligamentos_itens = [i for i in desligamentos_itens if formatar_setor(extrair_texto(i.get("properties", {}), "setor")) == setor]
+        atestados_itens = [i for i in atestados_itens if formatar_setor(extrair_texto(i.get("properties", {}), "setor")) == setor]
+        advertencias_itens = [i for i in advertencias_itens if formatar_setor(extrair_texto(i.get("properties", {}), "setor")) == setor]
+        desligamentos_ano = [i for i in desligamentos_ano if formatar_setor(extrair_texto(i.get("properties", {}), "setor")) == setor]
+        avaliacoes_itens = [i for i in avaliacoes_itens if formatar_setor(extrair_texto(i.get("properties", {}), "setor")) == setor]
 
     total_ativos = len(ativos_itens)
     dict_perfis = {}
     
-    def get_nome_correto(props, is_atestado=False):
-        nome = "Outros / Não Informado"
-        if "Funcionário" in props:
-            prop = props["Funcionário"]
-            if prop["type"] == "rich_text" and prop.get("rich_text"): nome = prop["rich_text"][0]["plain_text"]
-            elif prop["type"] == "title" and prop.get("title"): nome = prop["title"][0]["plain_text"]
-            elif prop["type"] == "rollup" and prop.get("rollup"): 
-                arr = prop["rollup"].get("array", [])
-                if arr and arr[0].get("title"): nome = arr[0]["title"][0]["plain_text"]
-                elif arr and arr[0].get("rich_text"): nome = arr[0]["rich_text"][0]["plain_text"]
-        
-        if nome == "Outros / Não Informado" and "Nome" in props: nome = extrair_texto(props, "Nome")
-        
-        if is_atestado and (nome == "Outros / Não Informado" or not nome.strip()):
-            for k, v in props.items():
-                if v.get("type") == "title" and v.get("title"):
-                    nome_bruto = v["title"][0]["plain_text"]
-                    nome = re.split(r'[-–—]', nome_bruto)[0].strip()
-                    break
-                    
-        return nome if nome else "Outros / Não Informado"
-
     def iniciar_perfil(nome):
         if nome not in dict_perfis:
             dict_perfis[nome] = {"cargo": "-", "setor": "-", "tempo_casa": "-", "salario": 0.0, "historico_atestados": [], "historico_advertencias": [], "faltas_dias": 0.0, "atrasos": 0, "nota_desempenho": 0.0, "qtd_aval": 0}
@@ -805,10 +1065,10 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
         props = item.get("properties", {})
         nome = get_nome_correto(props)
         iniciar_perfil(nome)
-        dict_perfis[nome]["setor"] = formatar_setor(extrair_texto(props, "Setor"))
+        dict_perfis[nome]["setor"] = formatar_setor(extrair_texto(props, "setor"))
 
-        adm_str = extrair_texto(props, "Data de admissão")
-        if adm_str != "Outros / Não Informado":
+        adm_str = extrair_texto(props, "data")
+        if adm_str != "Outros / Não Informado" and len(adm_str) >= 10:
             try:
                 data_admissao = datetime.strptime(adm_str[:10], "%Y-%m-%d")
                 diff = hoje - data_admissao
@@ -822,9 +1082,8 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
                 if venc_90.year == ano_int and venc_90.month == mes_int: alertas_contratos.append({"nome": nome, "dia": venc_90.day, "tipo": "90 Dias"})
             except: pass
             
-        nasc_str = extrair_texto(props, "Data de Nascimento")
-        if nasc_str == "Outros / Não Informado": nasc_str = extrair_texto(props, "Nascimento")
-        if nasc_str != "Outros / Não Informado":
+        nasc_str = extrair_texto(props, "nascimento")
+        if nasc_str != "Outros / Não Informado" and len(nasc_str) >= 10:
             try:
                 if int(nasc_str.split("-")[1]) == mes_int: alertas_aniversarios.append({"nome": nome, "dia": int(nasc_str.split("-")[2])})
             except: pass
@@ -835,7 +1094,7 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
 
     dict_setores = {}
     for item in atestados_itens:
-        s = formatar_setor(extrair_texto(item.get("properties", {}), "Setor"))
+        s = formatar_setor(extrair_texto(item.get("properties", {}), "setor"))
         if "Uchoa" in s: continue
         if s not in dict_setores: dict_setores[s] = {"setor": s, "atestados": 0, "faltas": 0}
         dict_setores[s]["atestados"] += 1
@@ -850,10 +1109,13 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
         if setor == "Todos": cursor.execute("SELECT nome_funcionario, setor, valor_desconto, faltas_dias FROM historico_folha WHERE mes = ? AND ano = ?", (mes_int, ano_int))
         else: cursor.execute("SELECT nome_funcionario, setor, valor_desconto, faltas_dias FROM historico_folha WHERE mes = ? AND ano = ? COLLATE NOCASE", (mes_int, ano_int))
         for rec in cursor.fetchall():
-            setor_f = formatar_setor(rec[1])
-            if "Uchoa" in setor_f: continue
-            if setor != "Todos" and setor_f != formatar_setor(setor): continue
             nome_f = rec[0]
+            nome_norm = normalizar_nome(nome_f)
+            
+            setor_f = setores_atuais.get(nome_norm, formatar_setor(rec[1]))
+            if "Uchoa" in setor_f: continue
+            if setor != "Todos" and formatar_setor(setor_f) != formatar_setor(setor): continue
+            
             val_desc = rec[2] if rec[2] is not None else 0.0
             faltas_d = rec[3] if rec[3] is not None else 0.0
             total_perdas_r += val_desc
@@ -867,21 +1129,15 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     except Exception as e: pass
 
     for item in todos_freq:
-        dt = extrair_texto(item.get("properties", {}), "Data")
-        if dt != "Outros / Não Informado" and inicio_mes_fiscal <= dt[:10] <= fim_mes_fiscal:
-            props = item.get("properties", {})
-            setor_freq = formatar_setor(extrair_texto(props, "Setor"))
+        props = item.get("properties", {})
+        dt = extrair_texto(props, "data")
+        if dt != "Outros / Não Informado" and len(dt) >= 10 and inicio_mes_fiscal <= dt[:10] <= fim_mes_fiscal:
+            setor_freq = setores_atuais.get(normalizar_nome(get_nome_correto(props)), formatar_setor(extrair_texto(props, "setor")))
             if "Uchoa" in setor_freq: continue
-            
-            if setor != "Todos" and setor_freq != formatar_setor(setor): continue
+            if setor != "Todos" and formatar_setor(setor_freq) != formatar_setor(setor): continue
             
             nome = get_nome_correto(props)
             iniciar_perfil(nome)
-            prop_dias = props.get("Dias") or props.get("# Dias") or {}
-            dias_descontados = prop_dias.get("number") if prop_dias.get("type") == "number" else 0
-            if not dias_descontados or dias_descontados == 0:
-                total_atrasos += 1
-                dict_perfis[nome]["atrasos"] += 1
             prop_he = props.get("Horas Extras") or props.get("HE") or props.get("Valor HE") or {}
             qtd_he = prop_he.get("number") if prop_he.get("type") == "number" else 0
             if qtd_he and qtd_he > 0:
@@ -896,24 +1152,23 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     dict_ranking_atestados, dict_medicos, dict_cids = {}, {}, {}
     for item in atestados_itens:
         props = item.get("properties", {})
-        setor_atst = formatar_setor(extrair_texto(props, "Setor"))
-        if "Uchoa" in setor_atst: continue
-        
         nome = get_nome_correto(props, is_atestado=True)
+        setor_atst = setores_atuais.get(normalizar_nome(nome), formatar_setor(extrair_texto(props, "setor")))
+        if "Uchoa" in setor_atst: continue
         
         iniciar_perfil(nome)
         dict_ranking_atestados[nome] = dict_ranking_atestados.get(nome, 0) + 1
-        medico = extrair_texto(props, "Médico")
+        medico = extrair_texto(props, "médico")
         if medico and medico != "Outros / Não Informado": dict_medicos[medico] = dict_medicos.get(medico, 0) + 1
-        cid = extrair_texto(props, "CID")
-        motivo = extrair_texto(props, "Motivo")
-        data_str = extrair_texto(props, "Data de Entrega")
+        cid = extrair_texto(props, "cid")
+        motivo = extrair_texto(props, "motivo")
+        data_str = extrair_texto(props, "data")
         if cid and cid != "Outros / Não Informado":
             label_cid = f"{cid} - {motivo}" if motivo != "Outros / Não Informado" else cid
             dict_cids[label_cid] = dict_cids.get(label_cid, 0) + 1
-            dict_perfis[nome]["historico_atestados"].append({"data": data_str[:10] if data_str != "Outros / Não Informado" else "-", "motivo": label_cid})
+            dict_perfis[nome]["historico_atestados"].append({"data": data_str[:10] if len(data_str) >= 10 else "-", "motivo": label_cid})
         else:
-            dict_perfis[nome]["historico_atestados"].append({"data": data_str[:10] if data_str != "Outros / Não Informado" else "-", "motivo": motivo})
+            dict_perfis[nome]["historico_atestados"].append({"data": data_str[:10] if len(data_str) >= 10 else "-", "motivo": motivo})
     
     ranking_atestados = sorted([{"nome": k, "atestados": v} for k, v in dict_ranking_atestados.items()], key=lambda x: x["atestados"], reverse=True)[:10]
     ranking_medicos = sorted([{"nome": k, "quantidade": v} for k, v in dict_medicos.items()], key=lambda x: x["quantidade"], reverse=True)[:7]
@@ -922,16 +1177,27 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     dict_adv, dict_ranking_adv = {}, {}
     for item in advertencias_itens:
         props = item.get("properties", {})
-        setor_adv = formatar_setor(extrair_texto(props, "Setor"))
-        if "Uchoa" in setor_adv: continue
         nome = get_nome_correto(props)
         iniciar_perfil(nome)
+        
+        motivo = extrair_texto(props, "motivo")
+        if motivo == "Outros / Não Informado": motivo = extrair_texto(props, "tipo")
+        
+        titulo_card = ""
+        for k, v in props.items():
+            if v.get("type") == "title" and v.get("title"):
+                titulo_card = v["title"][0]["plain_text"]
+                break
+                
+        texto_busca_atraso = (motivo + " " + titulo_card).lower()
+        if "atraso" in texto_busca_atraso or "saída" in texto_busca_atraso or "saida" in texto_busca_atraso:
+            total_atrasos += 1
+            dict_perfis[nome]["atrasos"] += 1
+            
         dict_ranking_adv[nome] = dict_ranking_adv.get(nome, 0) + 1
-        motivo = extrair_texto(props, "Motivo")
-        if motivo == "Outros / Não Informado": motivo = extrair_texto(props, "Tipo")
         dict_adv[motivo] = dict_adv.get(motivo, 0) + 1
-        data_str = extrair_texto(props, "Data da Advertência")
-        dict_perfis[nome]["historico_advertencias"].append({"data": data_str[:10] if data_str != "Outros / Não Informado" else "-", "motivo": motivo})
+        data_str = extrair_texto(props, "data")
+        dict_perfis[nome]["historico_advertencias"].append({"data": data_str[:10] if len(data_str) >= 10 else "-", "motivo": motivo})
         
     grafico_advertencias = [{"name": k, "value": v} for k, v in dict_adv.items()]
     ranking_advertencias = sorted([{"nome": k, "advertencias": v} for k, v in dict_ranking_adv.items()], key=lambda x: x["advertencias"], reverse=True)[:10]
@@ -963,11 +1229,11 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     contagem_meses, dict_motivos = {m: 0 for m in meses_nomes}, {}
     for item in desligamentos_ano:
         props = item.get("properties", {})
-        dt = extrair_texto(props, "Data de Desligamento")
-        if dt != "Outros / Não Informado":
+        dt = extrair_texto(props, "data")
+        if dt != "Outros / Não Informado" and len(dt) >= 10:
             mes_idx = int(dt.split("-")[1]) - 1
             contagem_meses[meses_nomes[mes_idx]] += 1
-        motivo = extrair_texto(props, "Motivo de Desligamento")
+        motivo = extrair_texto(props, "motivo")
         if motivo not in dict_motivos: dict_motivos[motivo] = 0
         dict_motivos[motivo] += 1
         
@@ -976,7 +1242,7 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
 
     dict_headcount = {}
     for item in ativos_itens:
-        s = formatar_setor(extrair_texto(item.get("properties", {}), "Setor"))
+        s = formatar_setor(extrair_texto(item.get("properties", {}), "setor"))
         if "Uchoa" in s: continue
         if s not in dict_headcount: dict_headcount[s] = 0
         dict_headcount[s] += 1
@@ -986,37 +1252,46 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
     lista_armarios = []
     for item in armarios_itens:
         props = item.get("properties", {})
-        num_str = extrair_texto(props, "armario_numero")
-        if num_str == "Outros / Não Informado":
-             for k, v in props.items():
-                if v.get("type") == "title" and v.get("title"):
-                    num_str = v["title"][0]["plain_text"]
-                    break
+        
+        num_str = "?"
+        for k, v in props.items():
+            if v.get("type") == "title" and v.get("title"):
+                num_str = v["title"][0]["plain_text"]
+                break
+        
+        if num_str == "?":
+            n = extrair_texto(props, "armario")
+            if n != "Outros / Não Informado": num_str = n
+            
         num_val = 0
         try:
              clean_num = ''.join(filter(str.isdigit, num_str))
              num_val = int(clean_num) if clean_num else 0
         except: pass
 
-        dono = extrair_texto(props, "nome_funcionario")
-        if dono == "Outros / Não Informado":
-            for k, v in props.items():
-                if v.get("type") == "title" and v.get("title"):
-                    dono = v["title"][0]["plain_text"]
-                    break
+        dono = get_nome_correto(props)
         if dono == "Outros / Não Informado": dono = None
 
         status = extrair_texto(props, "status")
+        if status == "Outros / Não Informado":
+             status = extrair_texto(props, "ocup")
+             
         status_clean = "Livre"
         if not status or status == "Outros / Não Informado":
              if dono: status_clean = "Ocupado"
              else: status_clean = "Livre"
         else:
             status_lower = status.lower()
-            if "ocupado" in status_lower: status_clean = "Ocupado"
+            if "ocup" in status_lower: status_clean = "Ocupado"
             elif "manuten" in status_lower or "indispon" in status_lower: status_clean = "Manutenção"
             elif "livre" in status_lower or "dispon" in status_lower: status_clean = "Livre"
             
+        if dono and setor != "Todos":
+             dono_norm = normalizar_nome(dono)
+             setor_dono = setores_atuais.get(dono_norm, "Outros")
+             if formatar_setor(setor_dono) != formatar_setor(setor):
+                 continue
+                 
         lista_armarios.append({"num": num_str if num_str != "Outros / Não Informado" else "?", "sort_val": num_val, "dono": dono, "status": status_clean})
 
     lista_armarios = sorted(lista_armarios, key=lambda x: x["sort_val"])
