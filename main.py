@@ -39,7 +39,7 @@ DB_ATESTADOS = "ec42d14b9f4243a4ae42a4e704396b1c"
 DB_ADVERTENCIAS = "3982051d7a6b8012b894f48c52cdab79"
 DB_FREQUENCIA = "39d2051d7a6b805cac20cb52b5c0b476"
 DB_DESEMPENHO = "14378c804c6643a3864e72d7947c822f"
-DB_ARMARIOS = "3872051d7a6b80c2b69ceb5e4db649cb"
+DB_ARMARIOS = "3862051d7a6b80f9848adf9e0d50c944"
 
 DB_PATH = "banco_rh.db"
 
@@ -475,9 +475,6 @@ async def rpa_horas_extras(arquivo_sap: UploadFile = File(...), arquivo_escritor
     except Exception as e:
         return {"sucesso": False, "erro": str(e)}
 
-# ==========================================
-# NOVO: ROBÔ RPA - CÁLCULO DE BÔNUS (SAP -> PLANILHA DE BÔNUS)
-# ==========================================
 @app.post("/api/rpa_bonus")
 async def rpa_bonus(arquivo_sap: UploadFile = File(...), arquivo_planilha: UploadFile = File(...)):
     try:
@@ -554,34 +551,61 @@ async def rpa_bonus(arquivo_sap: UploadFile = File(...), arquivo_planilha: Uploa
                     if nome_cell:
                         norm_excel = normalizar_nome(str(nome_cell))
                         
+                        # --- INÍCIO DA BUSCA INTELIGENTE DE NOMES ---
                         nome_encontrado_dict = None
+                        
+                        # 1. Correspondência exata
                         if norm_excel in dados_bonus:
                             nome_encontrado_dict = norm_excel
                         else:
                             for nome_ativo in dados_bonus.keys():
+                                # 2. Busca Simples: Um nome está inteiramente contido no outro
                                 if nome_ativo in norm_excel or norm_excel in nome_ativo:
                                     nome_encontrado_dict = nome_ativo
                                     break
+                                
+                                # 3. Busca Avançada (Fuzzy): Lida com nomes curtos ou sobrenomes ignorados do meio
+                                p_ativo = nome_ativo.split()
+                                p_excel = norm_excel.split()
+                                
+                                # Regra: O primeiro nome TEM que ser igual
+                                if p_ativo and p_excel and p_ativo[0] == p_excel[0]:
+                                    palavras_comuns = set(p_ativo).intersection(set(p_excel))
+                                    tamanho_menor = min(len(p_ativo), len(p_excel))
+                                    
+                                    # Se eles têm pelo menos 2 palavras iguais (Ex: 1º Nome + Último Sobrenome)
+                                    # E essas palavras representam a base do nome mais curto digitado
+                                    if len(palavras_comuns) >= 2 and len(palavras_comuns) >= (tamanho_menor - 1):
+                                        nome_encontrado_dict = nome_ativo
+                                        break
+                        # --- FIM DA BUSCA INTELIGENTE DE NOMES ---
                         
-                        if nome_encontrado_dict:
+                        # Se achou a pessoa e ela TEVE falta/atestado, aplica o desconto
+                        if nome_encontrado_dict and dados_bonus[nome_encontrado_dict]["desconto"] > 0:
                             info = dados_bonus[nome_encontrado_dict]
                             
-                            if info["desconto"] > 0:
-                                # Trava o desconto em 100% (Evita bônus negativo)
-                                desc_final = min(1.0, info["desconto"])
-                                
-                                # Agrupa motivos iguais. Ex: "2x Atestado (50%) + Falta Integral (100%)"
-                                contagem = Counter(info["motivos"])
-                                motivos_str = " + ".join([f"{qtd}x {m}" if qtd > 1 else m for m, qtd in contagem.items()])
-                                
-                                # Injeta na planilha
-                                ws.cell(row=r, column=col_desconto).value = desc_final
-                                if col_motivo:
-                                    ws.cell(row=r, column=col_motivo).value = motivos_str
-                                
-                                processados += 1
-                                # Remove do dicionário para rastrear depois quem faltou ser inserido
-                                del dados_bonus[nome_encontrado_dict]
+                            # Trava o desconto em 100% (Evita bônus negativo)
+                            desc_final = min(1.0, info["desconto"])
+                            
+                            # Agrupa motivos iguais. Ex: "2x Atestado (50%) + Falta Integral (100%)"
+                            contagem = Counter(info["motivos"])
+                            motivos_str = " + ".join([f"{qtd}x {m}" if qtd > 1 else m for m, qtd in contagem.items()])
+                            
+                            # Injeta na planilha
+                            ws.cell(row=r, column=col_desconto).value = desc_final
+                            if col_motivo:
+                                ws.cell(row=r, column=col_motivo).value = motivos_str
+                            
+                            processados += 1
+                            # Remove do dicionário para rastrear depois quem faltou ser inserido
+                            del dados_bonus[nome_encontrado_dict]
+                            
+                        # Se a pessoa existe na planilha mas NÃO TEVE falta/atestado no SAP
+                        else:
+                            # Preenche explicitamente com 0 para a fórmula do Excel manter 100% do bônus!
+                            ws.cell(row=r, column=col_desconto).value = 0
+                            if col_motivo:
+                                ws.cell(row=r, column=col_motivo).value = ""
 
         # Descobre quem teve desconto de bônus mas não está na planilha
         nao_encontrados = [nome for nome, info in dados_bonus.items() if info["desconto"] > 0]
@@ -994,8 +1018,14 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
 
     if mes_int == 1: mes_anterior, ano_anterior = 12, ano_int - 1
     else: mes_anterior, ano_anterior = mes_int - 1, ano_int
-    inicio_mes_fiscal = f"{ano_anterior}-{mes_anterior:02d}-26"
-    fim_mes_fiscal = f"{ano_int}-{mes_int:02d}-25"
+    
+    # Seus novos dias de corte fiscal
+    inicio_mes_fiscal = f"{ano_anterior}-{mes_anterior:02d}-25"
+    fim_mes_fiscal = f"{ano_int}-{mes_int:02d}-24"
+
+    # Criando o texto da competência
+    meses_pt = ["", "janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
+    texto_competencia = f"25 de {meses_pt[mes_anterior]} a 24 de {meses_pt[mes_int]} de {ano_int}"
 
     todos_colab = ler_do_banco("colaboradores") or []
     todos_deslig = ler_do_banco("desligamentos") or []
@@ -1310,5 +1340,155 @@ def obter_kpis_do_banco(mes: int = None, ano: int = None, setor: str = "Todos"):
         "rankingMedicos": ranking_medicos, "rankingCids": ranking_cids,       
         "graficoRadar": grafico_radar, "perfis360": dict_perfis,
         "alertasFerias": alertas_ferias, "totalHorasExtras": total_horas_extras, "graficoHorasExtras": grafico_he,
-        "armarios": lista_armarios, "setoresDisponiveis": lista_setores
+        "armarios": lista_armarios, "setoresDisponiveis": lista_setores,
+        "periodo_fiscal": texto_competencia
     }
+
+
+# ==========================================
+# NOVO: AUDITOR DE BÔNUS UNIVERSAL (XLS IBIRÁ OU PDF UCHOA)
+# ==========================================
+@app.post("/api/auditar_bonus_universal")
+async def auditar_bonus_universal(arquivo_sap: UploadFile = File(...), arquivo_planilha: UploadFile = File(...)):
+    try:
+        import pdfplumber
+        import io
+        
+        # 1. LER A PLANILHA DE BÔNUS JÁ PREENCHIDA
+        conteudo_bonus = await arquivo_planilha.read()
+        wb = openpyxl.load_workbook(io.BytesIO(conteudo_bonus), data_only=True)
+        ws = wb.worksheets[0]
+
+        col_nome = col_desconto = header_row = None
+        for r in range(1, 25):
+            for c in range(1, ws.max_column + 1):
+                val = str(ws.cell(row=r, column=c).value or "").strip().lower()
+                if 'nome' in val and 'colaborador' in val: col_nome = c
+                elif 'desconto' in val and '%' in val: col_desconto = c
+            if col_nome and col_desconto:
+                header_row = r
+                break
+
+        dados_planilha = {}
+        if col_nome and col_desconto and header_row:
+            for r in range(header_row + 1, ws.max_row + 1):
+                nome_cell = ws.cell(row=r, column=col_nome).value
+                if pd.notna(nome_cell) and str(nome_cell).strip() != "":
+                    norm_name = normalizar_nome(str(nome_cell))
+                    desc = ws.cell(row=r, column=col_desconto).value
+                    try: desc = float(desc)
+                    except: desc = 0.0
+                    dados_planilha[norm_name] = {'desconto': desc}
+
+        # 2. LER O ESPELHO DE PONTO SAP (Pode ser PDF de Uchôa ou XLS de Ibirá!)
+        conteudo_sap = await arquivo_sap.read()
+        filename = arquivo_sap.filename.lower()
+        dados_sap = {}
+
+        if filename.endswith(".pdf"):
+            texto_pdf = ""
+            with pdfplumber.open(io.BytesIO(conteudo_sap)) as pdf:
+                for page in pdf.pages:
+                    ext = page.extract_text()
+                    if ext: texto_pdf += ext + "\n"
+
+            espelhos = re.split(r'ESPELHO DO CARTÃO DE PONTO', texto_pdf)[1:]
+
+            for e in espelhos:
+                nome_match = re.search(r'Reconheço a exatidão destas informações e dou fé,\n*([^\n]+)', e)
+                if not nome_match: continue
+                     
+                nome_norm = normalizar_nome(nome_match.group(1).strip())
+                
+                faltas_integrais = 0
+                meio_periodo = 0
+                atestados = 0
+                
+                linhas = e.split('\n')
+                for linha in linhas:
+                    if re.search(r'^(Seg|Ter|Qua|Qui|Sex|Sab|Dom)\s+\d{2}/\d{2}', linha.strip()):
+                        fc = linha.count('FALTA')
+                        if fc >= 3: faltas_integrais += 1
+                        elif 0 < fc <= 2: meio_periodo += 1
+                        
+                        mc = linha.count('MEDIC') + linha.count('ATEST')
+                        if mc >= 3: atestados += 1
+                        elif 0 < mc <= 2: atestados += 0.5 
+
+                desc_esperado = min(1.0, (faltas_integrais * 1.0) + (meio_periodo * 0.25) + (atestados * 0.5))
+                dados_sap[nome_norm] = {
+                    'faltas': faltas_integrais, 'meios': meio_periodo, 'atestados': atestados, 'desconto_esperado': desc_esperado
+                }
+                
+        else:
+            # É arquivo Excel (.xls ou .xlsx)
+            engine_type = 'xlrd' if filename.endswith('.xls') else 'openpyxl'
+            df_sap = pd.read_excel(io.BytesIO(conteudo_sap), header=None, engine=engine_type)
+            current_norm = None
+            
+            for i, row in df_sap.iterrows():
+                row_str = ' | '.join([str(x).strip() if pd.notna(x) else "" for x in row.values])
+                
+                if 'Funcionário' in row_str and ':' in row_str:
+                    parts = row_str.split(':')
+                    if len(parts) > 1:
+                        emp_parts = parts[1].replace('|', '').strip().split(' ', 1)
+                        if len(emp_parts) == 2:
+                            current_norm = normalizar_nome(emp_parts[1])
+                            if current_norm not in dados_sap:
+                                dados_sap[current_norm] = {'faltas': 0, 'meios': 0, 'atestados': 0, 'desconto_esperado': 0.0}
+                        else:
+                            current_norm = None
+                            
+                if current_norm:
+                    vals = []
+                    for j in [4, 5, 6, 7]: 
+                        if j < len(row.values) and pd.notna(row.values[j]) and str(row.values[j]).strip() != "":
+                            vals.append(str(row.values[j]).strip().upper())
+                    
+                    fc = sum(1 for v in vals if 'FALTA' in v)
+                    mc = sum(1 for v in vals if 'MEDIC' in v or 'ATEST' in v)
+                    
+                    if fc >= 3: dados_sap[current_norm]['faltas'] += 1
+                    elif 0 < fc <= 2: dados_sap[current_norm]['meios'] += 1
+                        
+                    if mc >= 3: dados_sap[current_norm]['atestados'] += 1
+                    elif 0 < mc <= 2: dados_sap[current_norm]['atestados'] += 0.5
+            
+            for nome, info in dados_sap.items():
+                info['desconto_esperado'] = min(1.0, (info['faltas'] * 1.0) + (info['meios'] * 0.25) + (info['atestados'] * 0.5))
+
+        # 3. CRUZAR DADOS E GERAR RELATÓRIO DE DIVERGÊNCIAS
+        divergencias = []
+        for nome_sap, vals_sap in dados_sap.items():
+            encontrado = False
+            for nome_plan, vals_plan in dados_planilha.items():
+                if nome_sap in nome_plan or nome_plan in nome_sap:
+                    encontrado = True
+                else:
+                    p_sap = nome_sap.split()
+                    p_plan = nome_plan.split()
+                    if p_sap and p_plan and p_sap[0] == p_plan[0]:
+                        comuns = set(p_sap).intersection(set(p_plan))
+                        tamanho_menor = min(len(p_sap), len(p_plan))
+                        if len(comuns) >= 2 and len(comuns) >= (tamanho_menor - 1):
+                            encontrado = True
+                            
+                if encontrado:
+                    if round(vals_sap['desconto_esperado'], 2) != round(vals_plan['desconto'], 2):
+                        divergencias.append({
+                            'nome': nome_sap,
+                            'desc_planilha': f"{int(vals_plan['desconto']*100)}%",
+                            'desc_pdf': f"{int(vals_sap['desconto_esperado']*100)}%",
+                            'detalhes_pdf': f"{vals_sap['faltas']} Faltas | {vals_sap['meios']} Meios | {vals_sap['atestados']} Atestados"
+                        })
+                    break
+                    
+        return {
+            "sucesso": True,
+            "total_auditados": len(dados_sap),
+            "divergencias": divergencias
+        }
+
+    except Exception as e:
+        return {"sucesso": False, "erro": str(e)}

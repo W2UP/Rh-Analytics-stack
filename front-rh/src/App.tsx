@@ -27,7 +27,7 @@ export function App() {
   const [modal360, setModal360] = useState<string | null>(null);
 
   // ESTADOS DA TELA DE FOLHA
-  const [modoFolha, setModoFolha] = useState<'calculo' | 'rpa' | 'vales' | 'convocacao' | 'farmacia' | 'auditor' | 'bonus'>('calculo');
+  const [modoFolha, setModoFolha] = useState<'calculo' | 'rpa' | 'vales' | 'convocacao' | 'farmacia' | 'auditor' | 'bonus' | 'auditor_bonus'>('calculo');
   
   const [processandoPonto, setProcessandoPonto] = useState(false);
   const [resultadoPonto, setResultadoPonto] = useState<any[]>([]);
@@ -60,13 +60,19 @@ export function App() {
   const [processandoAuditoria, setProcessandoAuditoria] = useState(false);
   const [resultadoAuditoria, setResultadoAuditoria] = useState<any>(null);
 
+  // ESTADOS DO AUDITOR DE BÔNUS (PDF UCHOA)
+  const [arquivoPdfBonus, setArquivoPdfBonus] = useState<File | null>(null);
+  const [processandoAuditoriaBonus, setProcessandoAuditoriaBonus] = useState(false);
+  const [resultadoAuditoriaBonus, setResultadoAuditoriaBonus] = useState<any>(null);
+
   const [kpis, setKpis] = useState({
     funcionarios: "-", admissoes: "-", desligamentos: "-", turnover: "-", 
     atestados: "-", advertencias: "-", faltas: "-", atrasos: "-", avaliacoes: "-",
     custo_absenteismo: 0, graficoSetores: [], graficoTurnover: [], graficoMotivos: [], graficoHeadcount: [],
     alertasAniversarios: [], alertasContratos: [], graficoAdvertencias: [], rankingFaltas: [], rankingAtestados: [], rankingAdvertencias: [],
     rankingMedicos: [], rankingCids: [], graficoRadar: [], perfis360: {} as Record<string, any>,
-    alertasFerias: [], totalHorasExtras: 0, graficoHorasExtras: [], armarios: [], setoresDisponiveis: [] 
+    alertasFerias: [], totalHorasExtras: 0, graficoHorasExtras: [], armarios: [], setoresDisponiveis: [],
+    periodo_fiscal: "" 
   });
 
   const [menuAtivo, setMenuAtivo] = useState("visao_geral");
@@ -427,6 +433,33 @@ export function App() {
       setProcessandoAuditoria(false);
     }
   };
+
+ const handleAuditarBonusUniversal = async () => {
+    if (!arquivoPdfBonus || !arquivoBaseRpa) {
+      alert("Anexe o Espelho de Ponto do SAP (PDF ou XLS) e a Planilha de Bônus.");
+      return;
+    }
+    setProcessandoAuditoriaBonus(true);
+    setResultadoAuditoriaBonus(null);
+    
+    const formData = new FormData();
+    formData.append("arquivo_sap", arquivoPdfBonus);
+    formData.append("arquivo_planilha", arquivoBaseRpa);
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/auditar_bonus_universal", { method: "POST", body: formData });
+      const data = await response.json();
+      if (data.sucesso) {
+        setResultadoAuditoriaBonus(data);
+      } else {
+        alert("❌ Erro ao auditar: " + data.erro);
+      }
+    } catch(e) {
+      alert("❌ Erro técnico: " + e);
+    } finally {
+      setProcessandoAuditoriaBonus(false);
+    }
+  };
   
   const exportarPDF = async () => {
     if (kpis.funcionarios === "-") { alert("Aguarde os dados carregarem."); return; }
@@ -701,7 +734,7 @@ export function App() {
               <div id="print-visao" className={modoImpressao ? `p-8 rounded-xl bg-white border border-slate-200 shadow-sm` : ""}>
                 <div className={`mb-6 border-b pb-4 ${modoImpressao ? 'border-slate-200' : 'border-white/5'}`}>
                   <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>1. Sumário Executivo {setorSelecionado !== "Todos" && <span className="text-blue-500">- {setorSelecionado}</span>}</h2>
-                  <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
+                  <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Competência: {kpis.periodo_fiscal}</p>
                 </div>
 
                 <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -856,7 +889,7 @@ export function App() {
                 {modoImpressao && (
                   <div className="mb-6 border-b pb-4 border-slate-200">
                     <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>2. Saúde Ocupacional & Comportamento {setorSelecionado !== "Todos" && <span className="text-emerald-500">- {setorSelecionado}</span>}</h2>
-                    <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
+                    <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Competência: {kpis.periodo_fiscal}</p>
                   </div>
                 )}
 
@@ -950,7 +983,7 @@ export function App() {
                 {modoImpressao && (
                   <div className="mb-6 border-b pb-4 border-slate-200">
                     <h2 className={`text-2xl font-bold ${textColor} tracking-tight uppercase`}>3. Indicadores Financeiros e Passivos {setorSelecionado !== "Todos" && <span className="text-red-500">- {setorSelecionado}</span>}</h2>
-                    <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
+                    <p className={`${textMuted} text-sm`}>Gerado em: {new Date().toLocaleDateString('pt-BR')} | Competência: {kpis.periodo_fiscal}</p>
                   </div>
                 )}
 
@@ -1125,7 +1158,7 @@ export function App() {
                   <h2 className="text-2xl font-bold text-slate-800 tracking-tight uppercase">
                     Top {setorSelecionado === 'Todos' ? '5' : '10'} Ofensores de Faltas {setorSelecionado !== 'Todos' && <span className="text-rose-500">- {setorSelecionado}</span>}
                   </h2>
-                  <p className="text-slate-500 text-sm">Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
+                  <p className="text-slate-500 text-sm">Gerado em: {new Date().toLocaleDateString('pt-BR')} | Competência: {kpis.periodo_fiscal}</p>
                 </div>
                 <div className="space-y-4">
                   {kpis.rankingFaltas?.slice(0, setorSelecionado === 'Todos' ? 5 : 10).map((pessoa: any, idx: number) => (
@@ -1148,7 +1181,7 @@ export function App() {
                   <h2 className="text-2xl font-bold text-slate-800 tracking-tight uppercase">
                     Top {setorSelecionado === 'Todos' ? '5' : '10'} Volume de Atestados {setorSelecionado !== 'Todos' && <span className="text-emerald-500">- {setorSelecionado}</span>}
                   </h2>
-                  <p className="text-slate-500 text-sm">Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
+                  <p className="text-slate-500 text-sm">Gerado em: {new Date().toLocaleDateString('pt-BR')} | Competência: {kpis.periodo_fiscal}</p>
                 </div>
                 <div className="space-y-4">
                   {kpis.rankingAtestados?.slice(0, setorSelecionado === 'Todos' ? 5 : 10).map((pessoa: any, idx: number) => (
@@ -1171,7 +1204,7 @@ export function App() {
                   <h2 className="text-2xl font-bold text-slate-800 tracking-tight uppercase">
                     Top {setorSelecionado === 'Todos' ? '5' : '10'} Advertências {setorSelecionado !== 'Todos' && <span className="text-orange-500">- {setorSelecionado}</span>}
                   </h2>
-                  <p className="text-slate-500 text-sm">Gerado em: {new Date().toLocaleDateString('pt-BR')} | Ref: {NOME_MESES[mesSelecionado-1]} {anoSelecionado}</p>
+                  <p className="text-slate-500 text-sm">Gerado em: {new Date().toLocaleDateString('pt-BR')} | Competência: {kpis.periodo_fiscal}</p>
                 </div>
                 <div className="space-y-4">
                   {kpis.rankingAdvertencias?.slice(0, setorSelecionado === 'Todos' ? 5 : 10).map((pessoa: any, idx: number) => (
@@ -1218,8 +1251,11 @@ export function App() {
                   <button onClick={() => setModoFolha('farmacia')} className={`whitespace-nowrap px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'farmacia' ? 'bg-pink-600 text-white border-pink-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
                     <Pill className="w-5 h-5" /> Convênio Farmácia
                   </button>
-                  <button onClick={() => setModoFolha('bonus')} className={`whitespace-nowrap px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'bonus' ? 'bg-amber-500 text-white border-amber-400' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
+                  <button onClick={() => setModoFolha('bonus')} className={`whitespace-nowrap px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'bonus' ? 'bg-amber-600 text-white border-amber-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
                     <Award className="w-5 h-5" /> Fechamento de Bônus
+                  </button>
+                  <button onClick={() => setModoFolha('auditor_bonus')} className={`whitespace-nowrap px-6 py-3 font-bold rounded-lg transition-all flex items-center gap-2 shadow-sm ${modoFolha === 'auditor_bonus' ? 'bg-amber-600 text-white border-amber-500' : 'bg-[#232936] text-slate-400 border border-white/5 hover:text-white'}`}>
+                    <AlertOctagon className="w-5 h-5" /> Auditoria Ponto vs Bônus
                   </button>
                 </div>
 
@@ -1355,7 +1391,7 @@ export function App() {
                 )}
 
                 {/* ========================================= */}
-                {/* TELA 6: AUDITOR DE FOLHA (MÁXIMA SEGURANÇA)*/}
+                {/* TELA 3: AUDITOR DE FOLHA (MÁXIMA SEGURANÇA)*/}
                 {/* ========================================= */}
                 {modoFolha === 'auditor' && (
                   <div className="fade-in py-4">
@@ -1454,7 +1490,7 @@ export function App() {
                 )}
 
                 {/* ========================================= */}
-                {/* TELA 3: AUDITORIA DE TERMOS DE HORA EXTRA */}
+                {/* TELA 4: AUDITORIA DE TERMOS DE HORA EXTRA */}
                 {/* ========================================= */}
                 {modoFolha === 'convocacao' && (
                   <div className="fade-in py-4">
@@ -1539,7 +1575,7 @@ export function App() {
                 )}
 
                 {/* ========================================= */}
-                {/* TELA 4: LANÇAMENTO DE VALES / MÓVEIS      */}
+                {/* TELA 5: LANÇAMENTO DE VALES / MÓVEIS      */}
                 {/* ========================================= */}
                 {modoFolha === 'vales' && (
                   <div className="fade-in py-4">
@@ -1627,7 +1663,7 @@ export function App() {
                 )}
 
                 {/* ========================================= */}
-                {/* TELA 5: CONVÊNIO FARMÁCIA                 */}
+                {/* TELA 6: CONVÊNIO FARMÁCIA                 */}
                 {/* ========================================= */}
                 {modoFolha === 'farmacia' && (
                   <div className="fade-in py-4">
@@ -1686,7 +1722,7 @@ export function App() {
                 )}
 
                 {/* ========================================= */}
-                {/* TELA 7: FECHAMENTO DE BÔNUS (NOVA)        */}
+                {/* TELA 7: FECHAMENTO DE BÔNUS (RPA)         */}
                 {/* ========================================= */}
                 {modoFolha === 'bonus' && (
                   <div className="fade-in py-4">
@@ -1741,6 +1777,103 @@ export function App() {
                       </button>
                     </div>
 
+                  </div>
+                )}
+
+                {/* ========================================= */}
+                {/* TELA 8: AUDITOR DE BÔNUS (PDF UCHOA / XLS IBIRA)*/}
+                {/* ========================================= */}
+                {modoFolha === 'auditor_bonus' && (
+                  <div className="fade-in py-4">
+                    <div className="text-center flex flex-col items-center justify-center mb-10">
+                      <div className="w-16 h-16 bg-amber-500/10 text-amber-500 rounded-full flex items-center justify-center mb-6"><AlertOctagon className="w-8 h-8" /></div>
+                      <h2 className={`text-2xl font-bold ${textColor} mb-2`}>Auditoria Cruzada: Bônus vs Espelho SAP</h2>
+                      <p className={`${textMuted} text-sm max-w-lg mx-auto`}>Anexe o <b>Espelho de Ponto (PDF ou XLS)</b> e a sua <b>Planilha de Bônus Finalizada</b>. O robô vai ler a extensão do arquivo automaticamente, calcular os 100%, 50% e 25% e apontar quem está divergente.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto mb-8">
+                      {/* CAIXA 1: PDF/XLS DO ESPELHO SAP */}
+                      <div className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center ${arquivoPdfBonus ? 'border-amber-500 bg-amber-500/5' : 'border-slate-600 bg-[#1A1F2B] hover:border-amber-500'}`}>
+                         <input type="file" accept=".pdf,.xls,.xlsx" onChange={(e) => setArquivoPdfBonus(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                         {arquivoPdfBonus ? (
+                           <>
+                             <CheckCircle2 className="w-8 h-8 text-amber-500 mb-3" />
+                             <span className="text-amber-400 font-bold text-sm text-center line-clamp-1">{arquivoPdfBonus.name}</span>
+                           </>
+                         ) : (
+                           <>
+                             <UploadCloud className="w-8 h-8 text-slate-500 mb-3" />
+                             <span className="text-slate-300 font-bold text-sm text-center">1. Espelho Ponto (PDF ou XLS)</span>
+                           </>
+                         )}
+                      </div>
+
+                      {/* CAIXA 2: PLANILHA DE BÔNUS */}
+                      <div className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center ${arquivoBaseRpa ? 'border-amber-500 bg-amber-500/5' : 'border-slate-600 bg-[#1A1F2B] hover:border-amber-500'}`}>
+                         <input type="file" accept=".xls,.xlsx" onChange={(e) => setArquivoBaseRpa(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                         {arquivoBaseRpa ? (
+                           <>
+                             <CheckCircle2 className="w-8 h-8 text-amber-500 mb-3" />
+                             <span className="text-amber-400 font-bold text-sm text-center line-clamp-1">{arquivoBaseRpa.name}</span>
+                           </>
+                         ) : (
+                           <>
+                             <Briefcase className="w-8 h-8 text-slate-500 mb-3" />
+                             <span className="text-slate-300 font-bold text-sm text-center">2. Sua Planilha Bônus (.xlsx)</span>
+                           </>
+                         )}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-center mb-10">
+                      <button onClick={handleAuditarBonusUniversal} disabled={processandoAuditoriaBonus || !arquivoPdfBonus || !arquivoBaseRpa} className={`px-8 py-4 rounded-xl font-bold text-sm transition-all shadow-lg flex items-center gap-3 ${processandoAuditoriaBonus ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : (!arquivoPdfBonus || !arquivoBaseRpa) ? 'bg-[#232936] text-slate-500 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-500 text-white hover:shadow-amber-500/20 hover:-translate-y-1'}`}>
+                        {processandoAuditoriaBonus ? <Loader2 className="w-5 h-5 animate-spin" /> : <Activity className="w-5 h-5" />}
+                        {processandoAuditoriaBonus ? 'Auditando marcações de ponto...' : 'INICIAR AUDITORIA DE BÔNUS'}
+                      </button>
+                    </div>
+
+                    {/* RESULTADO DA AUDITORIA */}
+                    {resultadoAuditoriaBonus && (
+                      <div className="fade-in bg-[#1A1F2B] rounded-xl border border-white/10 p-6">
+                        <div className="flex justify-between items-center mb-6">
+                          <div>
+                            <h3 className="text-lg font-bold text-white">Relatório de Divergências</h3>
+                            <p className="text-slate-400 text-sm">Foram lidos {resultadoAuditoriaBonus.total_auditados} espelhos de ponto.</p>
+                          </div>
+                        </div>
+                        
+                        {resultadoAuditoriaBonus.divergencias.length === 0 ? (
+                          <div className="bg-emerald-500/10 border border-emerald-500/30 p-6 rounded-xl text-center">
+                            <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
+                            <h4 className="text-emerald-400 font-bold text-lg">Bônus Auditado com Sucesso!</h4>
+                            <p className="text-emerald-500/70 text-sm mt-1">Os descontos da planilha batem perfeitamente com os horários batidos no SAP.</p>
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto rounded-xl border border-white/10">
+                            <table className="w-full text-left border-collapse">
+                              <thead>
+                                <tr className="bg-[#232936]">
+                                  <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">Colaborador</th>
+                                  <th className="p-4 text-xs font-bold text-blue-400 uppercase tracking-wider border-b border-white/10">O que está na Planilha</th>
+                                  <th className="p-4 text-xs font-bold text-orange-400 uppercase tracking-wider border-b border-white/10">Deveria ser (Pelo Ponto)</th>
+                                  <th className="p-4 text-xs font-bold text-orange-400 uppercase tracking-wider border-b border-white/10">Motivo Encontrado no Ponto</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-white/5 bg-[#1A1F2B]">
+                                {resultadoAuditoriaBonus.divergencias.map((div: any, idx: number) => (
+                                  <tr key={idx} className="hover:bg-white/5 transition-colors">
+                                    <td className="p-4 font-bold text-white">{div.nome}</td>
+                                    <td className="p-4 font-bold text-red-500 line-through">{div.desc_planilha} de desconto</td>
+                                    <td className="p-4 font-bold text-orange-400">{div.desc_pdf} de desconto</td>
+                                    <td className="p-4 text-sm text-slate-300">{div.detalhes_pdf}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
