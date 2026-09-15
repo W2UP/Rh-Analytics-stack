@@ -1,21 +1,23 @@
-import { useState, useEffect, useRef } from 'react';
+import { apiFetch } from './api';
+import { useDashboard } from './hooks/useDashboard';
+import { IndicadorDetalhes } from './components/IndicadorDetalhes';
+import { FolhaVersoes } from './components/FolhaVersoes';
+import { useState, useEffect } from 'react';
 import { LayoutDashboard, Users, UserPlus, UserMinus, Activity, Stethoscope, AlertOctagon, Clock, Star, UsersRound, Download, TrendingDown, Lock, PieChart as PieChartIcon, DollarSign, Calendar, Gift, BellRing, AlertTriangle, Loader2, X, Briefcase, HeartPulse, Wallet, CalendarRange, Flame, Package, LockKeyhole, Unlock, Wrench, UploadCloud, RefreshCw, CheckCircle2, Bot, ShoppingCart, Pill, Award } from 'lucide-react';
-import html2canvas from 'html2canvas-pro';
-import { jsPDF } from 'jspdf';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, LabelList } from 'recharts';
 
 const CORES_DONUT = ['#818CF8', '#F43F5E', '#34D399', '#FBBF24', '#A78BFA', '#F472B6'];
 const NOME_MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
 export function App() {
-  const [autenticado, setAutenticado] = useState(() => { return localStorage.getItem("rh_logado") === "true"; });
+  const [autenticado, setAutenticado] = useState(false);
   const [usuario, setUsuario] = useState("");
   const [senha, setSenha] = useState("");
   const [erroLogin, setErroLogin] = useState("");
   const [fazendoLogin, setFazendoLogin] = useState(false);
 
-  const [carregandoDados, setCarregandoDados] = useState(true);
-  const [sincronizando, setSincronizando] = useState(false);
+  const [verificandoSessao, setVerificandoSessao] = useState(true);
+  const [indicadorAberto, setIndicadorAberto] = useState<"funcionarios" | "admissoes" | "desligamentos" | null>(null);
   
   const [mesSelecionado, setMesSelecionado] = useState(new Date().getMonth() + 1); 
   const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear()); 
@@ -65,52 +67,33 @@ export function App() {
   const [processandoAuditoriaBonus, setProcessandoAuditoriaBonus] = useState(false);
   const [resultadoAuditoriaBonus, setResultadoAuditoriaBonus] = useState<any>(null);
 
-  const [kpis, setKpis] = useState({
-    funcionarios: "-", admissoes: "-", desligamentos: "-", turnover: "-", 
-    atestados: "-", advertencias: "-", faltas: "-", atrasos: "-", avaliacoes: "-",
-    custo_absenteismo: 0, graficoSetores: [], graficoTurnover: [], graficoMotivos: [], graficoHeadcount: [],
-    alertasAniversarios: [], alertasContratos: [], graficoAdvertencias: [], rankingFaltas: [], rankingAtestados: [], rankingAdvertencias: [],
-    rankingMedicos: [], rankingCids: [], graficoRadar: [], perfis360: {} as Record<string, any>,
-    alertasFerias: [], totalHorasExtras: 0, graficoHorasExtras: [], armarios: [], setoresDisponiveis: [],
-    periodo_fiscal: "" 
-  });
+  const { kpis, carregandoDados, sincronizando, erroDados, syncStatus, carregarDadosDashboard, forcarSincronizacao } = useDashboard(autenticado, mesSelecionado, anoSelecionado, setorSelecionado);
 
   const [menuAtivo, setMenuAtivo] = useState("visao_geral");
   const [gerandoPdf, setGerandoPdf] = useState(false);
 
-  useEffect(() => { if (autenticado) { carregarDadosDashboard(); } }, [autenticado, mesSelecionado, anoSelecionado, setorSelecionado]);
+  useEffect(() => {
+    localStorage.removeItem('rh_logado');
+    apiFetch('/session').then(() => setAutenticado(true)).catch(() => setAutenticado(false)).finally(() => setVerificandoSessao(false));
+    const expired = () => { setAutenticado(false); setIndicadorAberto(null); setErroLogin('Sua sessão expirou. Entre novamente.'); };
+    window.addEventListener('rh:session-expired', expired);
+    return () => window.removeEventListener('rh:session-expired', expired);
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault(); setFazendoLogin(true); setErroLogin("");
     try {
-      const resposta = await fetch("http://127.0.0.1:8000/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ usuario, senha }) });
+      const resposta = await apiFetch("/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ usuario, senha }) });
       const dados = await resposta.json();
-      if (dados.sucesso) { localStorage.setItem("rh_logado", "true"); setAutenticado(true); } 
+      if (dados.sucesso) { setAutenticado(true); setSenha(""); } 
       else { setErroLogin("Usuário ou senha incorretos."); }
-    } catch (erro) { setErroLogin("Servidor Offline."); } 
+    } catch (erro) { setErroLogin((erro as Error).message || "Não foi possível entrar."); } 
     finally { setFazendoLogin(false); }
   };
 
-  const handleLogout = () => { localStorage.removeItem("rh_logado"); setAutenticado(false); };
-  
-  const carregarDadosDashboard = () => {
-    setCarregandoDados(true); 
-    fetch(`http://127.0.0.1:8000/api/dashboard/kpis?mes=${mesSelecionado}&ano=${anoSelecionado}&setor=${setorSelecionado}`)
-      .then((resposta) => resposta.json())
-      .then((dados_reais) => { setKpis(dados_reais); setCarregandoDados(false); })
-      .catch((erro) => { console.error("Erro ao buscar:", erro); setCarregandoDados(false); });
-  };
-
-  const forcarSincronizacao = () => {
-    setSincronizando(true);
-    fetch(`http://127.0.0.1:8000/api/sincronizar`)
-      .then((resposta) => resposta.json())
-      .then(() => {
-        setTimeout(() => {
-          setSincronizando(false);
-          carregarDadosDashboard();
-        }, 8000);
-      }).catch(() => setSincronizando(false));
+  const handleLogout = async () => {
+    try { await apiFetch('/logout', { method: 'POST' }); setAutenticado(false); setIndicadorAberto(null); }
+    catch (e) { setErroLogin((e as Error).message); alert('Não foi possível encerrar a sessão no servidor. Tente novamente.'); }
   };
   
   const formatarMoeda = (valor: number | string) => {
@@ -124,7 +107,7 @@ export function App() {
     setProcessandoPonto(true); setErroPonto(""); setResultadoPonto([]);
     const formData = new FormData(); formData.append("arquivo", file);
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/processar_ponto", { method: "POST", body: formData });
+      const response = await apiFetch("/processar_ponto", { method: "POST", body: formData });
       const data = await response.json();
       if (data.sucesso) { setResultadoPonto(data.dados); } else { setErroPonto(data.erro || "Falha ao processar o arquivo SAP."); }
     } catch (err) { setErroPonto("Erro de conexão. O servidor Python está rodando?"); } 
@@ -136,7 +119,7 @@ export function App() {
     setSalvandoFolha(true); setMensagemFolha("");
     try {
       const payload = { mes: mesSelecionado, ano: anoSelecionado, lancamentos: resultadoPonto };
-      const resposta = await fetch("http://127.0.0.1:8000/api/salvar_folha", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const resposta = await apiFetch("/salvar_folha", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const dados = await resposta.json();
       if (dados.sucesso) {
         setMensagemFolha("✅ Salvo com sucesso! Histórico auditável gerado.");
@@ -157,7 +140,7 @@ export function App() {
     formData.append("arquivo_escritorio", arquivoBaseRpa);
 
     try {
-        const response = await fetch("http://127.0.0.1:8000/api/rpa_horas_extras", { method: "POST", body: formData });
+        const response = await apiFetch("/rpa_horas_extras", { method: "POST", body: formData });
         if (response.ok) {
             const contentType = response.headers.get("content-type");
             if (contentType && contentType.includes("application/json")) {
@@ -201,7 +184,7 @@ export function App() {
     formData.append("arquivo_planilha", arquivoBaseRpa);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/rpa_bonus", { method: "POST", body: formData });
+      const response = await apiFetch("/rpa_bonus", { method: "POST", body: formData });
       
       const contentType = response.headers.get("content-type");
       if (contentType && contentType.includes("application/json")) {
@@ -246,7 +229,7 @@ export function App() {
     formData.append("arquivo_sap", file);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/dashboard_tempo_real", {
+      const response = await apiFetch("/dashboard_tempo_real", {
         method: "POST",
         body: formData
       });
@@ -278,7 +261,7 @@ export function App() {
     formData.append("arquivo_sap", arquivoSapRpa);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/auditar_convocacao", { method: "POST", body: formData });
+      const response = await apiFetch("/auditar_convocacao", { method: "POST", body: formData });
       const data = await response.json();
       if (data.sucesso) {
         setResultadoConvocacao(data);
@@ -304,7 +287,7 @@ export function App() {
     formData.append("arquivo_pdf", arquivoPdfVale);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/extrair_vales", { method: "POST", body: formData });
+      const response = await apiFetch("/extrair_vales", { method: "POST", body: formData });
       const data = await response.json();
       if (data.sucesso) {
         setDadosPreLista(data);
@@ -333,7 +316,7 @@ export function App() {
     formData.append("valor_desconto", valorEditado);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/injetar_vales", { method: "POST", body: formData });
+      const response = await apiFetch("/injetar_vales", { method: "POST", body: formData });
       
       const contentType = response.headers.get("content-type");
       if (contentType && contentType.includes("application/json")) {
@@ -373,7 +356,7 @@ export function App() {
     formData.append("arquivo_escritorio", arquivoBaseRpa);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/rpa_farmacia", { method: "POST", body: formData });
+      const response = await apiFetch("/rpa_farmacia", { method: "POST", body: formData });
       
       const contentType = response.headers.get("content-type");
       if (contentType && contentType.includes("application/json")) {
@@ -420,7 +403,7 @@ export function App() {
     formData.append("arquivo_escritorio", arquivoBaseRpa);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/auditar_folha", { method: "POST", body: formData });
+      const response = await apiFetch("/auditar_folha", { method: "POST", body: formData });
       const data = await response.json();
       if (data.sucesso) {
         setResultadoAuditoria(data);
@@ -447,7 +430,7 @@ export function App() {
     formData.append("arquivo_planilha", arquivoBaseRpa);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/auditar_bonus_universal", { method: "POST", body: formData });
+      const response = await apiFetch("/auditar_bonus_universal", { method: "POST", body: formData });
       const data = await response.json();
       if (data.sucesso) {
         setResultadoAuditoriaBonus(data);
@@ -462,6 +445,7 @@ export function App() {
   };
   
   const exportarPDF = async () => {
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas-pro'), import('jspdf')]);
     if (kpis.funcionarios === "-") { alert("Aguarde os dados carregarem."); return; }
     try {
       setGerandoPdf(true); setModoImpressao(true); 
@@ -553,6 +537,8 @@ export function App() {
     return nome.substring(0, 2).toUpperCase();
   };
 
+  if (verificandoSessao) return <main className="min-h-screen bg-slate-950 text-white grid place-items-center">Verificando acesso…</main>;
+
   if (!autenticado) {
     return (
       <div className="min-h-screen bg-[#0E1218] flex items-center justify-center p-4 relative overflow-hidden font-sans">
@@ -567,7 +553,7 @@ export function App() {
             <div><label className="block text-xs font-medium text-slate-400 mb-1.5 ml-1">Usuário</label><input type="text" value={usuario} onChange={(e) => setUsuario(e.target.value)} className="block w-full px-4 py-3 bg-[#1A1F2B] border border-white/5 rounded-lg text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all text-sm" placeholder="Ex: diretoria" required /></div>
             <div><label className="block text-xs font-medium text-slate-400 mb-1.5 ml-1">Senha</label><input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} className="block w-full px-4 py-3 bg-[#1A1F2B] border border-white/5 rounded-lg text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all text-sm" placeholder="••••••••" required /></div>
             {erroLogin && <div className="text-red-400 text-sm text-center font-medium pt-2">{erroLogin}</div>}
-            <div className="pt-4"><button type="submit" disabled={fazendoLogin} className={`w-full flex justify-center py-3 px-4 rounded-lg shadow-lg text-sm font-semibold text-white transition-all ${fazendoLogin ? 'bg-slate-700 cursor-not-allowed' : 'bg-gradient-to-r from-[#6366F1] to-[#3B82F6] hover:opacity-90'}`}>{fazendoLogin ? 'Autenticando...' : 'Sign in to Dashboard'}</button></div>
+            <div className="pt-4"><button type="submit" disabled={fazendoLogin} className={`w-full flex justify-center py-3 px-4 rounded-lg shadow-lg text-sm font-semibold text-white transition-all ${fazendoLogin ? 'bg-slate-700 cursor-not-allowed' : 'bg-gradient-to-r from-[#6366F1] to-[#3B82F6] hover:opacity-90'}`}>{fazendoLogin ? 'Autenticando...' : 'Entrar no painel'}</button></div>
           </form>
         </div>
       </div>
@@ -662,7 +648,7 @@ export function App() {
             </div>
           </nav>
           <div className="p-4 border-t border-white/5">
-            <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-4 py-2 hover:bg-red-500/10 text-slate-400 hover:text-red-400 rounded-lg transition-colors text-sm font-medium"><Lock className="w-4 h-4" /> Sign out</button>
+            <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-4 py-2 hover:bg-red-500/10 text-slate-400 hover:text-red-400 rounded-lg transition-colors text-sm font-medium"><Lock className="w-4 h-4" /> Sair</button>
           </div>
         </aside>
       )}
@@ -702,9 +688,7 @@ export function App() {
                 </select>
                 <div className="w-px h-4 bg-white/10"></div>
                 <select value={anoSelecionado} onChange={(e) => setAnoSelecionado(Number(e.target.value))} className="bg-transparent text-slate-200 text-sm py-1.5 pl-2 pr-6 outline-none cursor-pointer hover:text-white appearance-none" style={{backgroundImage: 'none'}}>
-                  <option value={2024} className="bg-[#1A1F2B] text-white">2024</option>
-                  <option value={2025} className="bg-[#1A1F2B] text-white">2025</option>
-                  <option value={2026} className="bg-[#1A1F2B] text-white">2026</option>
+                  {Array.from({length: Math.max(1, new Date().getFullYear() - 2023)}, (_, i) => 2024 + i).map(ano => <option key={ano} value={ano} className="bg-[#1A1F2B] text-white">{ano}</option>)}
                 </select>
               </div>
               <button onClick={exportarPDF} disabled={gerandoPdf || menuAtivo === 'folha' || menuAtivo === 'armarios'} className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm border border-white/5 ${gerandoPdf || menuAtivo === 'folha' || menuAtivo === 'armarios' ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white border-none cursor-pointer'}`}>
@@ -714,7 +698,18 @@ export function App() {
           </header>
         )}
 
-        <div id="area-relatorio" className={`relative ${modoImpressao ? "w-[1200px] mx-auto p-4 space-y-8 bg-slate-50" : "p-2 rounded-lg"}`}>
+        <div className="space-y-2 mb-4" aria-live="polite">
+          <p className="text-xs text-slate-400">{syncStatus?.ultima_atualizacao ? `Última atualização: ${new Date(syncStatus.ultima_atualizacao).toLocaleString('pt-BR')}` : 'Nenhuma sincronização disponível.'}{sincronizando ? ' · Atualização em andamento…' : ''}</p>
+          {syncStatus?.ultima_atualizacao && Date.now()-new Date(syncStatus.ultima_atualizacao).getTime()>86400000 && <p className="text-amber-300 text-sm">Os dados têm mais de 24 horas. Atualize antes de fechar a competência.</p>}
+          {erroDados && <div role="alert" className="p-3 rounded bg-red-950 text-red-200">{erroDados} <button onClick={carregarDadosDashboard} className="underline">Tentar novamente</button></div>}
+          {syncStatus?.erro && <p role="alert" className="p-3 rounded bg-amber-950 text-amber-200">{syncStatus.erro}</p>}
+          {syncStatus && !syncStatus.tem_dados && <p className="p-3 rounded bg-amber-950 text-amber-200">Sem dados sincronizados. Use “Atualizar Banco” para carregar as bases.</p>}
+          {kpis.avisos.length>0 && <details className="p-3 rounded bg-slate-800 text-slate-200 text-sm"><summary className="cursor-pointer">Observações sobre os dados ({kpis.avisos.length})</summary><ul className="list-disc ml-5 mt-2 space-y-1">{kpis.avisos.map(a=><li key={a}>{a}</li>)}</ul></details>}
+        </div>
+        {indicadorAberto && <IndicadorDetalhes titulo={{funcionarios:'Colaboradores no período',admissoes:'Admissões',desligamentos:'Desligamentos'}[indicadorAberto]} registros={kpis.detalhes[indicadorAberto] || []} fechar={()=>setIndicadorAberto(null)} />}
+        {menuAtivo === 'folha' && <FolhaVersoes mes={mesSelecionado} ano={anoSelecionado} atualizacao={mensagemFolha} />}
+
+        <div id="area-relatorio" className={`relative ${erroDados || (syncStatus && !syncStatus.tem_dados) ? "hidden" : ""} ${modoImpressao ? "w-[1200px] mx-auto p-4 space-y-8 bg-slate-50" : "p-2 rounded-lg"}`}>
           
           {carregandoDados && !modoImpressao && (
             <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#0E1218]/80 backdrop-blur-sm rounded-lg">
@@ -738,10 +733,10 @@ export function App() {
                 </div>
 
                 <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-blue-500/10 text-blue-500 rounded-lg"><Users className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Ativos</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.funcionarios}</h3></div></div>
-                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-lg"><UserPlus className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Admissões</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.admissoes}</h3></div></div>
-                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-rose-500/10 text-rose-500 rounded-lg"><UserMinus className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Desligamentos</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.desligamentos}</h3></div></div>
-                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-purple-500/10 text-purple-500 rounded-lg"><Activity className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Turnover</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.turnover}</h3></div></div>
+                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-blue-500/10 text-blue-500 rounded-lg"><Users className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Quadro no período</p><h3 className={`text-2xl font-bold ${textColor}`}><button type="button" className="underline decoration-dotted underline-offset-4 hover:text-blue-400" onClick={() => setIndicadorAberto("funcionarios")} aria-label="Conferir colaboradores no período">{kpis.funcionarios}</button></h3><p className={`text-xs ${textMuted}`}>{kpis.comparacao.funcionarios > 0 ? "+" : ""}{kpis.comparacao.funcionarios ?? "—"} vs. competência anterior</p></div></div>
+                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-lg"><UserPlus className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Admissões</p><h3 className={`text-2xl font-bold ${textColor}`}><button type="button" className="underline decoration-dotted underline-offset-4 hover:text-blue-400" onClick={() => setIndicadorAberto("admissoes")} aria-label="Conferir admissões">{kpis.admissoes}</button></h3><p className={`text-xs ${textMuted}`}>{kpis.comparacao.admissoes > 0 ? "+" : ""}{kpis.comparacao.admissoes ?? "—"} vs. competência anterior</p><p className={`text-xs ${textMuted}`}>Período: 25 a 24</p></div></div>
+                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-rose-500/10 text-rose-500 rounded-lg"><UserMinus className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Desligamentos</p><h3 className={`text-2xl font-bold ${textColor}`}><button type="button" className="underline decoration-dotted underline-offset-4 hover:text-blue-400" onClick={() => setIndicadorAberto("desligamentos")} aria-label="Conferir desligamentos">{kpis.desligamentos}</button></h3><p className={`text-xs ${textMuted}`}>{kpis.comparacao.desligamentos > 0 ? "+" : ""}{kpis.comparacao.desligamentos ?? "—"} vs. competência anterior</p></div></div>
+                  <div className={`${cardBg} p-5 rounded-xl flex items-center gap-4`}><div className="p-3 bg-purple-500/10 text-purple-500 rounded-lg"><Activity className="w-6 h-6" /></div><div><p className={`text-xs ${textMuted} font-bold uppercase`}>Turnover</p><h3 className={`text-2xl font-bold ${textColor}`}>{kpis.turnover}</h3><p className={`text-xs ${textMuted}`} title={kpis.base_turnover.formula}>Saídas ÷ quadro no fim do período</p></div></div>
                 </section>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4 mb-8">
@@ -787,8 +782,8 @@ export function App() {
                       {kpis.graficoMotivos.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart margin={{ bottom: 15 }}>
-                            <Pie isAnimationActive={!modoImpressao} data={kpis.graficoMotivos} innerRadius={50} outerRadius={85} paddingAngle={5} dataKey="value" stroke="none" label={({name, value}) => `${name.substring(0,10)}... (${value})`} labelLine={true}>
-                              {kpis.graficoMotivos.map((entry, index) => (<Cell key={`cell-${index}`} fill={CORES_DONUT[index % CORES_DONUT.length]} />))}
+                            <Pie isAnimationActive={!modoImpressao} data={kpis.graficoMotivos} innerRadius={50} outerRadius={85} paddingAngle={5} dataKey="value" stroke="none" label={({name, value}) => `${(name ?? "Não informado").substring(0,10)}... (${value})`} labelLine={true}>
+                              {kpis.graficoMotivos.map((_, index) => (<Cell key={`cell-${index}`} fill={CORES_DONUT[index % CORES_DONUT.length]} />))}
                             </Pie>
                             <Tooltip contentStyle={{backgroundColor: tooltipBg, borderColor: chartGrid, color: tooltipColor, borderRadius: '8px'}} itemStyle={{color: tooltipColor}} />
                             <Legend iconType="circle" wrapperStyle={{fontSize: '11px', color: chartText}} />

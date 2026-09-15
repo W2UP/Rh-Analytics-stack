@@ -12,3 +12,19 @@ sap_009_2.xls
 
 # Variáveis de ambiente
 .env
+# Dados privados e artefatos gerados
+*.db
+*.db-*
+*.sqlite*
+*.pyc
+config.local.json
+backups/
+Base de Dados/
+.pytest_cache/
+.venv/
+front-rh/dist/
+*.tsbuildinfo
+
+.cache/
+preview.config.json
+config.local.json.tmp

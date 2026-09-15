@@ -1,0 +1,12 @@
+{
+  "notion_token": "",
+  "users": {},
+  "rules": {
+    "divisor_horas_mensais": 220,
+    "bonus_meio_periodo": 0.25,
+    "bonus_atestado": 0.5,
+    "nomes_ignorados_ponto": [],
+    "setores_excluidos": ["Uchoa"],
+    "equivalencias_nomes": {}
+  }
+}
